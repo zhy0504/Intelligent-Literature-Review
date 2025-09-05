@@ -49,8 +49,61 @@ class Literature:
     relevance_score: float = 0.0
     
     def get_ama_citation(self) -> str:
-        """生成AMA格式引用"""
-        return f"{self.authors}. {self.title}. {self.journal}. {self.year}. doi:{self.doi}"
+        """生成标准AMA格式引用"""
+        import re
+        
+        # 1. 处理作者（最多6位，超过则前3位+et al.）
+        authors = self.authors.strip() if self.authors else ""
+        if authors:
+            # 如果作者以方括号包围，移除方括号
+            if authors.startswith('[') and authors.endswith(']'):
+                authors = authors[1:-1]
+            
+            # 分割作者并处理格式
+            author_list = [author.strip().strip("'\"") for author in authors.split(',') if author.strip().strip("'\"")]
+            
+            if len(author_list) > 6:
+                # 超过6位作者，取前3位 + et al.
+                formatted_authors = ', '.join(author_list[:3]) + ', et al.'
+            else:
+                formatted_authors = ', '.join(author_list)
+        else:
+            formatted_authors = "Anonymous"
+        
+        # 2. 处理标题（首字母大写，其余小写，专有名词除外）
+        title = self.title.strip() if self.title else "Untitled"
+        # 移除末尾的句点，AMA格式标题后不加句点
+        if title.endswith('.'):
+            title = title[:-1]
+        
+        # 3. 处理期刊名称（斜体，使用缩写）
+        journal = self.journal.strip() if self.journal else "Unknown Journal"
+        
+        # 4. 处理日期和卷期信息
+        year = self.year if self.year else "Unknown"
+        
+        # 构建基本引用格式：作者. 标题. 期刊. 年份
+        citation_parts = [
+            formatted_authors,
+            title,
+            journal,
+            str(year)
+        ]
+        
+        # 5. 添加DOI（如果有）
+        doi_part = ""
+        if hasattr(self, 'doi') and self.doi and self.doi.strip():
+            doi = self.doi.strip()
+            # 确保DOI格式正确
+            if not doi.startswith('doi:'):
+                doi_part = f". doi:{doi}"
+            else:
+                doi_part = f". {doi}"
+        
+        # 6. 组合完整引用
+        citation = '. '.join(citation_parts) + doi_part
+        
+        return citation
 
 
 class MedicalReviewGenerator:
