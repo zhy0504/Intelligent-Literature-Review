@@ -1,0 +1,38 @@
+# 示例配置文件
+# 请复制此文件为 ai_config.yaml 并填入你的API配置
+
+# OpenAI配置示例
+openai_example:
+  name: "openai_example"
+  api_type: "openai"
+  base_url: "https://api.openai.com/"
+  api_key: "your_openai_api_key_here"
+  default_model: "gpt-3.5-turbo"
+  timeout: 60
+
+# OpenAI兼容接口示例 (如Ollama, LocalAI等)
+local_openai:
+  name: "local_openai"
+  api_type: "openai"
+  base_url: "http://localhost:11434/v1/"  # Ollama默认端口
+  api_key: "not-needed"  # 本地服务通常不需要真实API key
+  default_model: ""
+  timeout: 120
+
+# Google Gemini配置示例
+gemini_example:
+  name: "gemini_example" 
+  api_type: "gemini"
+  base_url: "https://generativelanguage.googleapis.com/"
+  api_key: "your_gemini_api_key_here"
+  default_model: "gemini-pro"
+  timeout: 60
+
+# 自定义OpenAI兼容服务示例
+custom_service:
+  name: "custom_service"
+  api_type: "openai"
+  base_url: "https://your-custom-endpoint.com/v1/"
+  api_key: "your_custom_api_key"
+  default_model: "custom-model"
+  timeout: 90

@@ -1,0 +1,43 @@
+# 智能文献检索系统依赖包
+# ========================================
+
+# 核心数据处理库
+pandas>=2.0.0
+numpy>=1.24.0
+
+# HTTP请求和网络库
+requests>=2.28.0
+aiohttp>=3.8.0
+
+# 配置文件处理
+PyYAML>=6.0
+
+# XML解析库 (PubMed数据处理)
+lxml>=4.9.0
+
+# 系统监控库
+psutil>=5.9.0
+
+# 数据处理和增强库
+python-dateutil>=2.8.2
+pytz>=2022.7
+
+# HTTP依赖库
+charset-normalizer>=3.0.0
+idna>=3.4
+urllib3>=1.26.0
+certifi>=2022.0.0
+
+# 工具库
+six>=1.16.0
+
+# ========================================
+# Python标准库 (无需额外安装):
+# - json, re, os, sys, csv
+# - datetime, time, threading, asyncio
+# - argparse, typing, dataclasses
+# - pathlib, subprocess, shutil, platform
+# - hashlib, traceback, collections
+# - concurrent.futures, functools
+# - urllib.parse, xml.etree.ElementTree
+# - locale, logging
