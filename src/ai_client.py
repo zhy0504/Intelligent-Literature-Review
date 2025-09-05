@@ -636,6 +636,9 @@ class OpenAIAdapter(BaseAIAdapter):
                                     if 'content' in delta:
                                         content = delta['content']
                                         if content:  # 确保内容不为空
+                                            # 确保content是字符串类型
+                                            if not isinstance(content, str):
+                                                content = str(content)
                                             content_parts.append(content)
                                             # 使用安全打印函数实时输出
                                             safe_print(content, end='', flush=True)
@@ -646,7 +649,9 @@ class OpenAIAdapter(BaseAIAdapter):
                         continue
             
             # 返回完整响应格式
-            full_content = ''.join(content_parts)
+            # 确保content_parts中所有元素都是字符串
+            safe_content_parts = [str(part) for part in content_parts if part is not None]
+            full_content = ''.join(safe_content_parts)
             return {
                 "choices": [{
                     "message": {
@@ -1014,6 +1019,9 @@ class GeminiAdapter(BaseAIAdapter):
                                     if parts and 'text' in parts[0]:
                                         text = parts[0]['text']
                                         if text:  # 确保内容不为空
+                                            # 确保text是字符串类型
+                                            if not isinstance(text, str):
+                                                text = str(text)
                                             content_parts.append(text)
                                             # 使用安全打印函数实时输出
                                             safe_print(text, end='', flush=True)
@@ -1024,7 +1032,9 @@ class GeminiAdapter(BaseAIAdapter):
                         continue
             
             # 返回完整响应格式（模拟非流式响应格式）
-            full_content = ''.join(content_parts)
+            # 确保content_parts中所有元素都是字符串
+            safe_content_parts = [str(part) for part in content_parts if part is not None]
+            full_content = ''.join(safe_content_parts)
             return {
                 "candidates": [{
                     "content": {
@@ -1497,6 +1507,11 @@ class AIClient:
                 choices = response.get('choices', [])
                 if choices:
                     content = choices[0].get('message', {}).get('content', '')
+                    # 确保content是字符串类型
+                    if isinstance(content, list):
+                        content = ' '.join(str(item) for item in content)
+                    elif not isinstance(content, str):
+                        content = str(content)
                     return content.strip()
             
             elif api_type.lower() == 'gemini':
@@ -1505,7 +1520,13 @@ class AIClient:
                     content = candidates[0].get('content', {})
                     parts = content.get('parts', [])
                     if parts:
-                        return parts[0].get('text', '').strip()
+                        text = parts[0].get('text', '')
+                        # 确保text是字符串类型
+                        if isinstance(text, list):
+                            text = ' '.join(str(item) for item in text)
+                        elif not isinstance(text, str):
+                            text = str(text)
+                        return text.strip()
             
         except (KeyError, IndexError, TypeError) as e:
             return f"解析响应失败: {e}\n\n原始响应:\n{json.dumps(response, indent=2, ensure_ascii=False)}"

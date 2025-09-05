@@ -567,12 +567,50 @@ class AdvancedCLI(IntelligentLiteratureCLI):
             choice = int(input("选择默认服务: ")) - 1
             if 0 <= choice < len(valid_services):
                 selected_service = valid_services[choice]
-                print(f"已设置默认服务: {selected_service['name']}")
-                self._log_action("切换默认服务", {"service": selected_service['name']})
+                service_name = selected_service['name']
+                
+                # 更新配置文件
+                if self._update_default_service_in_config(service_name):
+                    print(f"已设置默认服务: {service_name}")
+                    
+                    # 清理AI模型缓存
+                    self._clear_ai_model_cache()
+                    
+                    self._log_action("切换默认服务", {"service": service_name})
+                else:
+                    print("更新配置文件失败")
             else:
                 print("无效选择")
         except ValueError:
             print("请输入有效数字")
+    
+    def _update_default_service_in_config(self, service_name: str) -> bool:
+        """更新配置文件中的默认服务"""
+        try:
+            import yaml
+            
+            with open(self.ai_config_file, 'r', encoding='utf-8') as f:
+                config_data = yaml.safe_load(f)
+            
+            config_data['default_service'] = service_name
+            
+            with open(self.ai_config_file, 'w', encoding='utf-8') as f:
+                yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True, indent=2)
+            
+            return True
+        except Exception as e:
+            print(f"更新配置文件失败: {e}")
+            return False
+    
+    def _clear_ai_model_cache(self):
+        """清理AI模型缓存文件"""
+        cache_file = self.project_root / "ai_model_cache.json"
+        try:
+            if cache_file.exists():
+                cache_file.unlink()
+                print("[CACHE] 已清理AI模型缓存，下次启动将重新选择模型")
+        except Exception as e:
+            print(f"清理缓存失败: {e}")
     
     def manage_prompts_config(self):
         """提示词配置管理"""

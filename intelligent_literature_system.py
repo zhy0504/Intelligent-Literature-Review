@@ -29,6 +29,97 @@ from src.medical_review_generator import MedicalReviewGenerator
 from src.data_processor import JournalDataProcessor
 
 
+class SystemCleaner:
+    """系统清理器 - 启动时清理残留文件"""
+    
+    @staticmethod
+    def cleanup_on_startup(verbose: bool = True):
+        """启动时清理残留文件"""
+        cleanup_patterns = [
+            "system_state.json",           # 状态文件
+            "temp_literature_*.json",      # 临时文献文件
+            "temp_outline_*.md",           # 临时大纲文件
+            "temp_*.json",                 # 其他临时json文件
+            "temp_*.md",                   # 其他临时markdown文件
+            "*.cache",                     # 缓存文件
+        ]
+        
+        cleaned_files = []
+        
+        try:
+            # 获取当前目录下的所有文件
+            current_dir = Path(".")
+            
+            for pattern in cleanup_patterns:
+                # 使用glob匹配文件模式
+                matching_files = list(current_dir.glob(pattern))
+                
+                for file_path in matching_files:
+                    try:
+                        if file_path.exists() and file_path.is_file():
+                            file_path.unlink()  # 删除文件
+                            cleaned_files.append(str(file_path))
+                            if verbose:
+                                print(f"[CLEANUP] 清理残留文件: {file_path}")
+                    except Exception as e:
+                        if verbose:
+                            print(f"[WARN] 清理文件失败 {file_path}: {e}")
+            
+            if cleaned_files and verbose:
+                print(f"[OK] 启动清理完成，共清理 {len(cleaned_files)} 个残留文件")
+            elif verbose:
+                print("[OK] 启动检查完成，无需清理残留文件")
+                
+        except Exception as e:
+            if verbose:
+                print(f"[WARN] 启动清理过程出现异常: {e}")
+        
+        return cleaned_files
+    
+    @staticmethod
+    def manual_cleanup(verbose: bool = True):
+        """手动全面清理 - 包括缓存和状态"""
+        try:
+            # 首先调用启动清理
+            cleaned_files = SystemCleaner.cleanup_on_startup(verbose=False)
+            
+            # 额外清理缓存目录
+            cache_dir = Path("./cache")
+            if cache_dir.exists():
+                cache_files = list(cache_dir.glob("*.cache"))
+                for cache_file in cache_files:
+                    try:
+                        cache_file.unlink()
+                        cleaned_files.append(str(cache_file))
+                        if verbose:
+                            print(f"[CLEANUP] 清理缓存文件: {cache_file}")
+                    except Exception as e:
+                        if verbose:
+                            print(f"[WARN] 清理缓存文件失败 {cache_file}: {e}")
+            
+            # 清理AI模型缓存
+            ai_cache_file = Path("ai_model_cache.json")
+            if ai_cache_file.exists():
+                try:
+                    ai_cache_file.unlink()
+                    cleaned_files.append(str(ai_cache_file))
+                    if verbose:
+                        print(f"[CLEANUP] 清理AI模型缓存: {ai_cache_file}")
+                except Exception as e:
+                    if verbose:
+                        print(f"[WARN] 清理AI模型缓存失败: {e}")
+            
+            if verbose:
+                print(f"[OK] 手动清理完成，共清理 {len(cleaned_files)} 个文件")
+            
+            return cleaned_files
+            
+        except Exception as e:
+            if verbose:
+                print(f"[ERROR] 手动清理失败: {e}")
+            return []
+
+
 class SystemError(Exception):
     """系统错误异常类"""
     def __init__(self, component: str, error_type: str, message: str, solution: str = None):
@@ -165,7 +256,15 @@ class IntelligentCache:
     
     def get_cached_ai_response(self, prompt_hash: str) -> Optional[str]:
         """获取缓存的AI响应"""
-        return self.ai_response_cache.get(prompt_hash)
+        cached_data = self.ai_response_cache.get(prompt_hash)
+        
+        if cached_data and isinstance(cached_data, dict):
+            response = cached_data.get('response')
+            return response
+        elif cached_data is not None:
+            return cached_data
+        
+        return None
     
     def cache_ai_response(self, prompt_hash: str, response: str):
         """缓存AI响应"""
@@ -278,6 +377,12 @@ class IntelligentLiteratureSystem:
             enable_cache: 是否启用缓存
             enable_state: 是否启用状态管理
         """
+        # 系统启动时自动清理残留文件
+        print("智能文献检索与综述生成系统 v2.0")
+        print("=" * 60)
+        SystemCleaner.cleanup_on_startup(verbose=True)
+        print("=" * 60)
+        
         self.ai_config_name = ai_config_name
         self.interactive_mode = interactive_mode
         self.enable_cache = enable_cache
@@ -307,8 +412,6 @@ class IntelligentLiteratureSystem:
         self.batch_delay = 5.0  # 批次间延迟时间（秒）
         self.max_retries = 3   # 最大重试次数
         
-        print("智能文献检索与综述生成系统 v2.0")
-        print("=" * 60)
         print(f"配置: AI={ai_config_name or '默认'}, 交互={interactive_mode}, 缓存={enable_cache}, 状态={enable_state}")
     
     async def initialize_components(self) -> bool:
@@ -1011,8 +1114,9 @@ class IntelligentLiteratureSystem:
         self.performance_monitor.start_timing("大纲生成")
         
         try:
-            # 使用用户原始输入作为研究主题（用于文件命名等），而不是英文关键词
-            research_topic = user_query
+            # 使用智能标题提取，只保留核心研究主题和时间范围
+            research_topic = self._extract_core_research_topic(user_query)
+            print(f"核心研究主题提取: '{user_query}' → '{research_topic}'")
             
             # 检查大纲缓存
             outline_cache_key = f"outline_{hash(research_topic + str(len(self.filtered_results)))}"
@@ -1283,9 +1387,9 @@ class IntelligentLiteratureSystem:
         
         try:
             with open(filepath, 'w', newline='', encoding='utf-8-sig') as csvfile:
-                # 定义CSV字段 - 添加期刊质量指标
+                # 定义CSV字段 - 添加期刊质量指标和卷期页信息
                 fieldnames = [
-                    '序号', '标题', '作者', '期刊', '发表年份', 'PMID', 'DOI', 
+                    '序号', '标题', '作者', '期刊', '卷', '期', '页码', '发表年份', 'PMID', 'DOI', 
                     'ISSN', 'eISSN', '中科院分区', 'JCR分区', '影响因子', 
                     '摘要', '关键词', 'URL'
                 ]
@@ -1320,6 +1424,9 @@ class IntelligentLiteratureSystem:
                         '标题': article.get('title', ''),
                         '作者': authors_str,
                         '期刊': article.get('journal', ''),
+                        '卷': article.get('volume', ''),
+                        '期': article.get('issue', ''),
+                        '页码': article.get('pages', ''),
                         '发表年份': article.get('publication_date', ''),
                         'PMID': article.get('pmid', ''),
                         'DOI': article.get('doi', ''),
@@ -1576,6 +1683,151 @@ class IntelligentLiteratureSystem:
         print(f"用户需求筛选完成: {total_count} 篇 -> {len(filtered_pmids)} 篇")
         return filtered_pmids
     
+    def _extract_core_research_topic(self, user_input: str) -> str:
+        """
+        从用户输入中提取核心研究主题，移除筛选条件
+        
+        Args:
+            user_input: 用户原始输入
+            
+        Returns:
+            str: 提取的核心研究主题
+        """
+        import re
+        
+        # 定义需要移除的筛选条件关键词（添加高分文章识别）
+        filter_patterns = [
+            # 期刊分区相关 - 完整移除
+            r'中科院[1-4一二三四]?区?[1-4一二三四]?区?[期刊]*',
+            r'中科院.*?分区', r'CAS.*?分区', 
+            r'JCR.*?分区', r'JCR.*?Q[1-4]', r'Q[1-4]区?',
+            r'[1-4一二三四]区[2-4二三四]?区?',
+            r'分区[1-4一二三四\-\s]+区?',
+            
+            # 影响因子相关 - 修复正则表达式错误
+            r'影响因子.*?[>＞大于高于超过小于低于<＜]\s*\d+\.?\d*分?',
+            r'高影响因子', r'顶级影响因子', r'低影响因子',
+            r'IF\s*[>＞<＜]\s*\d+\.?\d*',
+            r'[>＞大于高于超过小于低于<＜]\s*\d+\.?\d*分?',
+            
+            # 期刊质量相关 - 加强期刊过滤
+            r'顶级期刊', r'高质量期刊', r'权威期刊', r'核心期刊',
+            r'SCI期刊', r'SSCI期刊', r'EI期刊',
+            r'high\s+impact\s+factor', r'journals?', r'期刊',
+            r'JCR\s*Q[1-4]\s*期刊', r'Q[1-4]\s*期刊',
+            
+            # 文章质量相关 - 新增高分文章识别
+            r'高分文章', r'高质量文章', r'顶级文章', r'权威文章',
+            r'高分', r'高质量', r'顶级', r'权威',
+            
+            # 结尾的修饰词
+            r'的?研究$', r'的?文献$', r'的?综述$', r'进展$',
+            r'research$', r'study$', r'studies$',
+        ]
+        
+        # 提取时间范围（先提取，后面重新添加）
+        time_patterns = [
+            r'近\d+年', r'最近\d+年', r'过去\d+年', r'前\d+年',
+            r'近几年', r'最近几年', r'近年来', r'最近', r'近期',
+            r'\d{4}年?[-到至]\d{4}年?', r'\d{4}年?以来', r'\d{4}年?至今'
+        ]
+        
+        time_range = ""
+        for pattern in time_patterns:
+            match = re.search(pattern, user_input)
+            if match:
+                time_range = match.group()
+                break
+        
+        # 开始清理
+        clean_topic = user_input.strip()
+        
+        # 检测是否包含英文内容
+        is_english_content = re.search(r'[a-zA-Z]', clean_topic)
+        
+        # 移除筛选条件关键词
+        for pattern in filter_patterns:
+            clean_topic = re.sub(pattern, '', clean_topic, flags=re.IGNORECASE)
+        
+        # 特殊处理：移除数字+区的组合（如"1-2区"）
+        clean_topic = re.sub(r'\d+[-\s]*\d*区', '', clean_topic)
+        
+        # 清理连续的标点符号
+        clean_topic = re.sub(r'[,，、；;]+', '', clean_topic)
+        clean_topic = re.sub(r'^[和与及的]', '', clean_topic)
+        
+        # 额外处理："的"字结尾清理
+        clean_topic = re.sub(r'的$', '', clean_topic)
+        
+        # 处理英文输入的特殊情况（在移除空格之前）
+        if is_english_content:
+            # 英文输入，保留主要单词，移除修饰词
+            english_filter_words = ['high', 'impact', 'factor', 'journals', 'journal', 'Q1', 'Q2', 'Q3', 'Q4']
+            # 先标准化空格
+            clean_topic = re.sub(r'\s+', ' ', clean_topic)
+            words = clean_topic.split()
+            filtered_words = [word for word in words if word.lower() not in english_filter_words]
+            if filtered_words:
+                clean_topic = ' '.join(filtered_words)
+        else:
+            # 纯中文内容，移除多余空格但保留必要的分隔
+            clean_topic = re.sub(r'\s+', '', clean_topic)
+        
+        clean_topic = clean_topic.strip()
+        
+        # 特殊情况处理：如果只剩下"期刊"或类似的无意义词汇，则回退到默认处理
+        meaningless_keywords = ['期刊', 'journals', 'journal', '研究', '文献', '综述']
+        if clean_topic in meaningless_keywords:
+            clean_topic = ""
+        
+        # 如果清理后太短，尝试从原始输入中提取核心概念
+        if len(clean_topic) < 3:
+            # 定位核心医学概念
+            medical_concepts = re.findall(r'糖尿病|高血压|心血管|肿瘤|癌症|COVID-19|疫苗|治疗|诊断|机器学习', user_input)
+            if medical_concepts:
+                clean_topic = medical_concepts[0]
+            else:
+                # 英文概念提取
+                english_concepts = re.findall(r'\b(?:diabetes|COVID-19|cancer|treatment|therapy|diagnosis|machine\s+learning|vaccine)\b', user_input, re.IGNORECASE)
+                if english_concepts:
+                    clean_topic = english_concepts[0]
+        
+        # 重新添加时间范围，注意顺序
+        if time_range and time_range not in clean_topic:
+            # 检查时间范围在原始输入中的位置
+            time_pos = user_input.find(time_range) if time_range in user_input else -1
+            
+            # 检查核心医学概念在原始输入中的位置
+            core_medical_pos = -1
+            if clean_topic:
+                # 尝试找到核心主题在原始输入中的位置
+                core_medical_pos = user_input.find(clean_topic.replace(time_range, '').strip())
+            
+            if is_english_content:
+                if time_pos != -1 and (core_medical_pos == -1 or time_pos < core_medical_pos):
+                    # 时间范围在前面
+                    clean_topic = time_range + ' ' + clean_topic
+                else:
+                    # 时间范围在后面
+                    clean_topic = clean_topic + ' ' + time_range
+            else:
+                # 中文处理：特殊处理"近年来"等前置时间词
+                if time_range in ['近年来', '最近', '近期'] and time_pos != -1 and (core_medical_pos == -1 or time_pos < core_medical_pos):
+                    # 前置时间词，如"近年来糖尿病研究" -> "糖尿病近年来"
+                    clean_topic = clean_topic + time_range
+                else:
+                    # 时间范围在后面，如"糖尿病治疗近5年"
+                    clean_topic = clean_topic + time_range
+        
+        # 最终清理
+        clean_topic = clean_topic.strip()
+        
+        # 如果仍然为空或太短，使用默认主题
+        if not clean_topic or len(clean_topic) < 2:
+            clean_topic = "医学研究"
+        
+        return clean_topic
+
     def _print_summary(self, result: Dict):
         """打印处理结果摘要"""
         print(f"处理结果摘要:")

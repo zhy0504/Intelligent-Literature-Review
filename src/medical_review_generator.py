@@ -46,6 +46,9 @@ class Literature:
     doi: str
     abstract: str
     url: str
+    volume: str = ""
+    issue: str = ""
+    pages: str = ""
     relevance_score: float = 0.0
     
     def get_ama_citation(self) -> str:
@@ -53,15 +56,27 @@ class Literature:
         import re
         
         # 1. 处理作者（最多6位，超过则前3位+et al.）
-        authors = self.authors.strip() if self.authors else ""
-        if authors:
-            # 如果作者以方括号包围，移除方括号
-            if authors.startswith('[') and authors.endswith(']'):
-                authors = authors[1:-1]
-            
-            # 分割作者并处理格式
-            author_list = [author.strip().strip("'\"") for author in authors.split(',') if author.strip().strip("'\"")]
-            
+        authors = self.authors if self.authors else ""
+        
+        # 处理authors可能是列表或字符串的情况
+        if isinstance(authors, list):
+            # 如果是列表，直接使用
+            author_list = [str(author).strip().strip("'\"") for author in authors if str(author).strip()]
+        else:
+            # 如果是字符串，则按照原来的逻辑处理
+            authors = str(authors).strip() if authors else ""
+            if authors:
+                # 如果作者以方括号包围，移除方括号
+                if authors.startswith('[') and authors.endswith(']'):
+                    authors = authors[1:-1]
+                
+                # 分割作者并处理格式
+                author_list = [author.strip().strip("'\"") for author in authors.split(',') if author.strip().strip("'\"")]
+            else:
+                author_list = []
+        
+        # 格式化作者列表
+        if author_list:
             if len(author_list) > 6:
                 # 超过6位作者，取前3位 + et al.
                 formatted_authors = ', '.join(author_list[:3]) + ', et al.'
@@ -79,15 +94,35 @@ class Literature:
         # 3. 处理期刊名称（斜体，使用缩写）
         journal = self.journal.strip() if self.journal else "Unknown Journal"
         
-        # 4. 处理日期和卷期信息
+        # 4. 处理日期和卷期页信息
         year = self.year if self.year else "Unknown"
+        volume = getattr(self, 'volume', '') or ""
+        issue = getattr(self, 'issue', '') or ""
+        pages = getattr(self, 'pages', '') or ""
         
-        # 构建基本引用格式：作者. 标题. 期刊. 年份
+        # 构建期刊引用部分：期刊名. 年份;卷(期):页码
+        journal_part = journal
+        if year:
+            journal_part += f". {year}"
+        
+        # 添加卷期页信息
+        if volume or issue or pages:
+            volume_issue_pages = ""
+            if volume:
+                volume_issue_pages += volume
+            if issue:
+                volume_issue_pages += f"({issue})" if volume else issue
+            if pages:
+                volume_issue_pages += f":{pages}" if (volume or issue) else pages
+            
+            if volume_issue_pages:
+                journal_part += f";{volume_issue_pages}"
+        
+        # 构建基本引用格式：作者. 标题. 期刊信息
         citation_parts = [
             formatted_authors,
             title,
-            journal,
-            str(year)
+            journal_part
         ]
         
         # 5. 添加DOI（如果有）
@@ -276,6 +311,9 @@ class MedicalReviewGenerator:
                                 'title': title_value.strip(),
                                 'authors': row.get('作者', ''),
                                 'journal': row.get('期刊', ''),
+                                'volume': row.get('卷', ''),
+                                'issue': row.get('期', ''),
+                                'pages': row.get('页码', ''),
                                 'year': int(row.get('发表年份', '2023')) if row.get('发表年份') and row.get('发表年份').isdigit() else 2023,
                                 'doi': row.get('DOI', ''),
                                 'abstract': row.get('摘要', ''),
@@ -314,6 +352,9 @@ class MedicalReviewGenerator:
                         doi=item.get('doi', ''),
                         abstract=item.get('abstract', ''),
                         url=item.get('url', ''),
+                        volume=item.get('volume', ''),
+                        issue=item.get('issue', ''),
+                        pages=item.get('pages', ''),
                         relevance_score=item.get('relevance_score', 0.0)
                     )
                     literature_list.append(lit)
@@ -385,22 +426,54 @@ class MedicalReviewGenerator:
             # 清理内容
             content = content.strip()
             
-            # 按段落处理，去除多余空行
-            paragraphs = [para.strip() for para in content.split('\n') if para.strip()]
-            formatted_paragraphs = []
+            # 标准化段落缩进
+            content = self._normalize_paragraph_indentation(content)
             
-            for para in paragraphs:
-                # 确保段落开头有缩进
-                if not para.startswith('　'):
-                    para = '　　' + para
-                formatted_paragraphs.append(para)
-            
-            # 段落之间只用一个空行分隔
-            return '\n\n'.join(formatted_paragraphs)
+            return content
             
         except Exception as e:
             print(f"生成章节内容失败 ({section.title}): {e}")
             return f"　　本章节内容生成失败，请检查AI服务配置。错误信息：{e}"
+    
+    def _normalize_paragraph_indentation(self, content: str) -> str:
+        """
+        标准化段落缩进，确保每个段落只有两个全角空格缩进
+        
+        Args:
+            content: 原始内容
+            
+        Returns:
+            str: 标准化缩进后的内容
+        """
+        if not content:
+            return content
+        
+        lines = content.split('\n')
+        processed_lines = []
+        
+        for line in lines:
+            # 如果是空行，直接保留
+            if not line.strip():
+                processed_lines.append(line)
+                continue
+            
+            # 如果是标题行（以#开头），不处理缩进
+            if line.strip().startswith('#'):
+                processed_lines.append(line)
+                continue
+            
+            # 处理段落缩进
+            stripped_line = line.lstrip('　 ')  # 移除开头的全角空格和普通空格
+            
+            # 如果移除空格后还有内容，说明这是一个需要缩进的段落
+            if stripped_line:
+                # 统一添加两个全角空格
+                processed_lines.append('　　' + stripped_line)
+            else:
+                # 如果移除空格后没有内容，保留原行
+                processed_lines.append(line)
+        
+        return '\n'.join(processed_lines)
     
     def generate_complete_review_article(self, outline_file: str, literature_file: str, title: str = None) -> str:
         """
@@ -494,6 +567,9 @@ class MedicalReviewGenerator:
             # 清理AI引导语
             article_content = self._clean_ai_intro(article_content)
             
+            # 标准化段落缩进，确保只有两个全角空格
+            article_content = self._normalize_paragraph_indentation(article_content)
+            
             # 首先添加完整的AMA格式参考文献列表
             article_content = self._add_complete_references(article_content, literature)
             
@@ -501,6 +577,7 @@ class MedicalReviewGenerator:
             article_content = self._reorder_citations_and_references(article_content, literature)
             
             print("完整医学综述文章生成完成!")
+            
             return article_content.strip()
             
         except Exception as e:
@@ -567,6 +644,7 @@ class MedicalReviewGenerator:
         """
         重新排序引用标记和参考文献
         按文章中引用出现的顺序重新编号，只保留被引用的文献
+        支持多种引用格式：[1], [5, 12], [15, 18, 40, 51]
         
         Args:
             article_content: 原始文章内容
@@ -577,20 +655,30 @@ class MedicalReviewGenerator:
         """
         import re
         
-        # 1. 提取文章中所有的引用标记 [数字]
-        citation_pattern = r'\[(\d+)\]'
-        citations = re.findall(citation_pattern, article_content)
+        # 1. 提取文章中所有的引用标记，支持单个和多个引用
+        # 匹配格式: [数字] 或 [数字, 数字, ...] 
+        citation_pattern = r'\[([0-9, ]+)\]'
+        citation_matches = re.findall(citation_pattern, article_content)
         
-        print(f"找到的引用标记: {citations[:10]}...")  # 只显示前10个
+        # 解析所有引用的数字
+        all_citations = []
+        for match in citation_matches:
+            # 分割逗号分隔的数字
+            numbers = [num.strip() for num in match.split(',')]
+            for num_str in numbers:
+                if num_str.isdigit():
+                    all_citations.append(num_str)
         
-        if not citations:
+        print(f"找到的引用标记: {all_citations[:10]}...")  # 只显示前10个
+        
+        if not all_citations:
             print("文章中未发现引用标记，跳过重新编号")
             return article_content
         
         # 2. 按出现顺序去重，保持顺序
         cited_indices = []
         seen = set()
-        for citation in citations:
+        for citation in all_citations:
             idx = int(citation) - 1  # 转换为0基索引
             if idx not in seen and 0 <= idx < len(literature):
                 cited_indices.append(idx)
@@ -611,17 +699,31 @@ class MedicalReviewGenerator:
         
         print(f"索引映射示例: {dict(list(old_to_new.items())[:5])}")  # 显示前5个映射
         
-        # 4. 替换文章中的引用标记
-        def replace_citation(match):
-            old_num = int(match.group(1))
-            new_num = old_to_new.get(old_num)
-            if new_num:
-                return f"[{new_num}]"
+        # 4. 替换文章中的引用标记（支持多文献引用）
+        def replace_multi_citation(match):
+            citation_content = match.group(1)
+            numbers = [num.strip() for num in citation_content.split(',')]
+            new_numbers = []
+            
+            for num_str in numbers:
+                if num_str.isdigit():
+                    old_num = int(num_str)
+                    new_num = old_to_new.get(old_num)
+                    if new_num:
+                        new_numbers.append(str(new_num))
+                    # 如果引用的文献不在映射中，跳过（不包含在新引用中）
+                    # 这样可以自动过滤掉超出文献列表范围的无效引用
+            
+            # 重新组合多个引用
+            if not new_numbers:
+                # 如果所有引用都无效，返回空字符串或警告
+                return "[无效引用]"
+            elif len(new_numbers) == 1:
+                return f"[{new_numbers[0]}]"
             else:
-                # 如果引用的文献不在列表中，保持原样但添加警告注释
-                return f"[{old_num}]"  
+                return f"[{', '.join(new_numbers)}]"
         
-        updated_content = re.sub(citation_pattern, replace_citation, article_content)
+        updated_content = re.sub(citation_pattern, replace_multi_citation, article_content)
         
         # 5. 生成重新排序的参考文献列表（只包含被引用的）
         cited_literature = [literature[idx] for idx in cited_indices]
@@ -644,6 +746,7 @@ class MedicalReviewGenerator:
             print("添加了新的参考文献部分")
         
         print(f"引用重新编号完成: {len(literature)} → {len(cited_literature)} 篇文献")
+        
         return updated_content
     
     def generate_references(self, literature: List[Literature]) -> str:

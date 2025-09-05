@@ -75,7 +75,6 @@ def show_system_status_non_interactive(cli):
     # 目录结构
     print(f"\n目录结构:")
     print(f"  数据目录: {'存在' if cli.data_dir.exists() else '不存在'}")
-    print(f"  输出目录: {'存在' if cli.output_dir.exists() else '不存在'}")
     print(f"  提示词目录: {'存在' if (cli.project_root / 'prompts').exists() else '不存在'}")
     
     # 数据文件详细检查
@@ -206,8 +205,16 @@ def start_literature_system():
     print("=" * 50)
     
     try:
-        # 构建命令 - 使用纯交互式模式，不预设任何参数
+        # 获取AI配置中的默认服务
+        cli = AdvancedCLI()
+        ai_config = cli.check_ai_config()
+        default_service = ai_config.get('default_service')
+        
+        # 构建命令 - 使用配置文件中的默认AI服务
         cmd = [sys.executable, "intelligent_literature_system.py"]
+        if default_service:
+            cmd.extend(["--ai-config", default_service])
+            print(f"使用默认AI服务: {default_service}")
         
         print(f"\n启动系统...")
         print(f"执行命令: {' '.join(cmd)}")

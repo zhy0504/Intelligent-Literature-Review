@@ -692,6 +692,9 @@ class PubMedSearcher:
             journal_elem = article_element.find('.//Journal/Title')
             journal = journal_elem.text if journal_elem is not None else ""
             
+            # 期刊卷期页码信息
+            volume, issue, pages = self._extract_journal_info(article_element)
+            
             # 发表日期
             pub_date = self._extract_publication_date(article_element)
             
@@ -720,6 +723,9 @@ class PubMedSearcher:
                 'title': title,
                 'authors': authors,
                 'journal': journal,
+                'volume': volume,
+                'issue': issue,
+                'pages': pages,
                 'publication_date': pub_date,
                 'abstract': abstract,
                 'doi': doi,
@@ -734,6 +740,52 @@ class PubMedSearcher:
         except Exception as e:
             print(f"提取文章信息失败: {e}")
             return None
+    
+    def _extract_journal_info(self, article_element) -> tuple:
+        """
+        提取期刊卷号、期号和页码信息
+        
+        Args:
+            article_element: XML文章元素
+        
+        Returns:
+            (volume, issue, pages) 元组
+        """
+        volume = ""
+        issue = ""
+        pages = ""
+        
+        try:
+            # 查找JournalIssue下的Volume
+            volume_elem = article_element.find('.//JournalIssue/Volume')
+            if volume_elem is not None:
+                volume = volume_elem.text or ""
+            
+            # 查找JournalIssue下的Issue
+            issue_elem = article_element.find('.//JournalIssue/Issue')
+            if issue_elem is not None:
+                issue = issue_elem.text or ""
+            
+            # 查找Pagination下的MedlinePgn
+            pages_elem = article_element.find('.//Pagination/MedlinePgn')
+            if pages_elem is not None:
+                pages = pages_elem.text or ""
+            
+            # 备用方案：查找StartPage和EndPage
+            if not pages:
+                start_page = article_element.find('.//Pagination/StartPage')
+                end_page = article_element.find('.//Pagination/EndPage')
+                
+                if start_page is not None and end_page is not None:
+                    pages = f"{start_page.text}-{end_page.text}"
+                elif start_page is not None:
+                    pages = start_page.text or ""
+                    
+        except Exception as e:
+            # 静默处理异常
+            pass
+            
+        return volume, issue, pages
     
     def _extract_publication_date(self, article_element) -> str:
         """提取发表日期"""
@@ -857,7 +909,7 @@ class DataExporter:
         try:
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
                 fieldnames = [
-                    'pmid', 'title', 'authors_str', 'journal', 
+                    'pmid', 'title', 'authors_str', 'journal', 'volume', 'issue', 'pages',
                     'publication_date', 'abstract', 'doi', 'issn', 'eissn', 'keywords_str'
                 ]
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
@@ -916,6 +968,12 @@ class DataExporter:
                     txtfile.write(f"标题: {article.get('title', '')}\n")
                     txtfile.write(f"作者: {article.get('authors_str', '')}\n")
                     txtfile.write(f"期刊: {article.get('journal', '')}\n")
+                    if article.get('volume'):
+                        txtfile.write(f"卷: {article.get('volume', '')}\n")
+                    if article.get('issue'):
+                        txtfile.write(f"期: {article.get('issue', '')}\n")
+                    if article.get('pages'):
+                        txtfile.write(f"页码: {article.get('pages', '')}\n")
                     txtfile.write(f"发表日期: {article.get('publication_date', '')}\n")
                     txtfile.write(f"DOI: {article.get('doi', '')}\n")
                     txtfile.write(f"ISSN: {article.get('issn', '')}\n")
@@ -949,6 +1007,9 @@ class DataExporter:
                     authors = ' and '.join(article.get('authors', []))
                     journal = article.get('journal', '')
                     year = article.get('publication_date', '').split('-')[0] if article.get('publication_date') else ''
+                    volume = article.get('volume', '')
+                    issue = article.get('issue', '') 
+                    pages = article.get('pages', '')
                     doi = article.get('doi', '')
                     
                     bibfile.write(f"@article{{pmid{pmid},\n")
@@ -957,6 +1018,12 @@ class DataExporter:
                         bibfile.write(f"  author={{{authors}}},\n")
                     if journal:
                         bibfile.write(f"  journal={{{journal}}},\n")
+                    if volume:
+                        bibfile.write(f"  volume={{{volume}}},\n")
+                    if issue:
+                        bibfile.write(f"  number={{{issue}}},\n")
+                    if pages:
+                        bibfile.write(f"  pages={{{pages}}},\n")
                     if year:
                         bibfile.write(f"  year={{{year}}},\n")
                     if doi:
