@@ -191,25 +191,35 @@ class ProgressTracker:
         self.start_time = time.time()
         self.step_times = {}
     
-    def update(self, step_name: str, status: str = "处理中", progress: float = None):
+    def update_progress_only(self, step_name: str, status: str, progress: float):
+        """仅更新进度，不递增步骤计数（用于批处理过程）"""
+        elapsed = time.time() - self.start_time
+        progress_bar = self._generate_progress_bar(progress)
+        
+        # 显示当前步骤的进度更新，但不改变step计数
+        print(f"[{self.current_step}/{self.total_steps}] {step_name}: {status}")
+        print(f"{progress_bar} {progress:.1f}% - 用时: {elapsed:.1f}s")
+    
+    def update(self, step_name: str, status: str = "处理中", progress: float = None, increment_step: bool = True):
         """更新进度"""
-        self.current_step += 1
+        if increment_step:
+            self.current_step += 1
         elapsed = time.time() - self.start_time
         self.step_times[step_name] = elapsed
         
-        percentage = (self.current_step / self.total_steps) * 100
-        progress_bar = self._generate_progress_bar(percentage)
+        # 如果提供了具体的进度值，使用它；否则使用步骤进度
+        if progress is not None:
+            display_progress = progress
+        else:
+            display_progress = (self.current_step / self.total_steps) * 100
+            
+        progress_bar = self._generate_progress_bar(display_progress)
         
         # 每个组件都显示在新行上
         print(f"[{self.current_step}/{self.total_steps}] {step_name}: {status}")
-        print(f"{progress_bar} {percentage:.1f}% - 用时: {elapsed:.1f}s", end="")
+        print(f"{progress_bar} {display_progress:.1f}% - 用时: {elapsed:.1f}s")
         
-        if progress is not None:
-            print(f" (进度: {progress:.1f}%)", end="")
-        
-        print()  # 换行
-        
-        if self.current_step == self.total_steps:
+        if self.current_step == self.total_steps and increment_step:
             print(f"\n[OK] {self.description}完成！总用时: {elapsed:.1f}s")
     
     def _generate_progress_bar(self, percentage: float, width: int = 30) -> str:
@@ -910,7 +920,7 @@ class IntelligentLiteratureSystem:
                 
                 # 显示进度
                 progress = (len(issn_results) / len(pmid_list)) * 100
-                progress_tracker.update("PubMed文献检索", f"ISSN/EISSN筛选中 ({len(issn_results)}/{len(pmid_list)})", progress)
+                progress_tracker.update_progress_only("PubMed文献检索", f"ISSN/EISSN筛选中 ({len(issn_results)}/{len(pmid_list)})", progress)
                 
                 # 批次间延迟（最后一批不延迟）
                 if i + self.chunk_size < len(pmid_list):
@@ -953,7 +963,7 @@ class IntelligentLiteratureSystem:
                 
                 # 显示进度
                 progress = (len(self.literature_results) / len(filtered_pmids)) * 100
-                progress_tracker.update("PubMed文献检索", f"获取完整信息 ({len(self.literature_results)}/{len(filtered_pmids)})", progress)
+                progress_tracker.update_progress_only("PubMed文献检索", f"获取完整信息 ({len(self.literature_results)}/{len(filtered_pmids)})", progress)
                 
                 # 批次间延迟（最后一批不延迟）
                 if i + self.chunk_size < len(filtered_pmids):
@@ -1001,7 +1011,8 @@ class IntelligentLiteratureSystem:
         self.performance_monitor.start_timing("大纲生成")
         
         try:
-            research_topic = self.search_criteria.keywords[0] if self.search_criteria.keywords else user_query
+            # 使用用户原始输入作为研究主题（用于文件命名等），而不是英文关键词
+            research_topic = user_query
             
             # 检查大纲缓存
             outline_cache_key = f"outline_{hash(research_topic + str(len(self.filtered_results)))}"
@@ -1087,11 +1098,20 @@ class IntelligentLiteratureSystem:
                     print("综述文章生成失败，尝试备用方法...")
                     # 尝试直接返回生成的内容
                     try:
-                        review_content = self.review_generator.generate_review_article(
+                        review_content = self.review_generator.generate_complete_review_article(
                             temp_outline_file, temp_literature_file, review_title
                         )
                         if review_content:
                             success = True
+                            # 确保输出目录存在
+                            os.makedirs("综述文章", exist_ok=True)
+                            full_path = os.path.join("综述文章", output_file)
+                            
+                            # 保存生成的内容
+                            with open(full_path, 'w', encoding='utf-8') as f:
+                                f.write(review_content)
+                            print(f"综述文章已保存（备用方法）: {full_path}")
+                            
                             # 缓存文章结果
                             if self.cache_system:
                                 self.cache_system.cache_ai_response(article_cache_key, review_content)
@@ -1102,19 +1122,12 @@ class IntelligentLiteratureSystem:
                         return {"success": False, "error": "综述文章生成失败"}
             
             if success:
-                # 确保输出目录存在
-                os.makedirs("综述文章", exist_ok=True)
+                # 确保综述文章文件存在
                 full_path = os.path.join("综述文章", output_file)
-                
-                # 如果有内容，写入文件
-                if 'review_content' in locals() and review_content:
-                    with open(full_path, 'w', encoding='utf-8') as f:
-                        f.write(review_content)
-                    print(f"综述文章已保存: {full_path}")
-                elif os.path.exists(output_file):
+                if os.path.exists(full_path):
                     print(f"综述文章生成完成: {full_path}")
                 else:
-                    print("综述文章生成完成但文件未找到")
+                    print("主方法生成完成但未找到文件")
             else:
                 return {"success": False, "error": "综述文章生成失败"}
             
@@ -1226,10 +1239,11 @@ class IntelligentLiteratureSystem:
     def _generate_output_filename(self, topic: str) -> str:
         """生成输出文件名（仅文件名，不包含路径）"""
         import re
-        safe_topic = re.sub(r'[^\w\s-]', '', topic).replace(' ', '_')[:20]
+        safe_topic = re.sub(r'[^\w\s\u4e00-\u9fff-]', '', topic)  # 保留中文字符
+        safe_topic = re.sub(r'\s+', '_', safe_topic.strip())[:30]  # 替换空格为下划线，限制长度
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
-        return f"智能综述_{safe_topic}_{timestamp}.md"
+        return f"综述-{safe_topic}-{timestamp}.md"
     
     def _cleanup_temp_files(self, files: List[str]):
         """清理临时文件"""

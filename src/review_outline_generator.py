@@ -410,16 +410,18 @@ class ReviewOutlineGenerator:
                 # 尝试不同的摘要字段名
                 for field in abstract_fields:
                     if field in article:
-                        abstract = article.get(field, '').strip()
-                        if abstract and len(abstract) > 50:  # 找到有效摘要就跳出
-                            break
+                        field_value = article.get(field) or ''
+                        if isinstance(field_value, str) and field_value.strip():
+                            abstract = field_value.strip()
+                            if len(abstract) > 50:  # 找到有效摘要就跳出
+                                break
                 
                 # 智能筛选：只保留有实际内容的摘要
                 if abstract and len(abstract) > 50:
                     # 清理摘要文本
-                    abstract = self._clean_abstract_text(abstract)
-                    if abstract:
-                        abstracts.append(abstract)
+                    cleaned_abstract = self._clean_abstract_text(abstract)
+                    if cleaned_abstract:
+                        abstracts.append(cleaned_abstract)
             except Exception as e:
                 print(f"提取摘要失败: {e}")
                 self.performance_stats['errors'] += 1
@@ -491,12 +493,13 @@ class ReviewOutlineGenerator:
         
         for article in literature_data:
             try:
-                title = article.get('title', '').strip()
-                if title:
+                # 安全地获取标题，处理 None 值
+                title = article.get('title') or ''
+                if isinstance(title, str) and title.strip():
                     # 清理标题文本
-                    title = self._clean_title_text(title)
-                    if title:
-                        titles.append(title)
+                    cleaned_title = self._clean_title_text(title.strip())
+                    if cleaned_title:
+                        titles.append(cleaned_title)
             except Exception as e:
                 print(f"提取标题失败: {e}")
                 self.performance_stats['errors'] += 1
@@ -546,11 +549,17 @@ class ReviewOutlineGenerator:
                 # 格式化响应
                 outline = self.ai_client.format_response(response, self.adapter.config.api_type)
                 
+                # 清理AI引导语
+                outline = self._clean_ai_intro(outline)
+                
                 # 验证大纲质量
                 if self._validate_outline(outline):
+                    print(f"[SUCCESS] 大纲生成成功，通过质量验证")
                     return outline
                 else:
                     print(f"大纲质量验证失败，尝试 {attempt + 1}/{self.generator_config.retry_attempts}")
+                    print(f"[DEBUG] 生成的大纲长度: {len(outline)} 字符")
+                    print(f"[DEBUG] 大纲前200字符: {outline[:200]}")
                     last_error = "大纲质量验证失败"
                     
             except Exception as e:
@@ -563,39 +572,115 @@ class ReviewOutlineGenerator:
                     delay = min(2 ** attempt, 10)
                     time.sleep(delay)
         
-        # 所有尝试都失败，返回基础大纲模板
-        print(f"所有AI生成尝试失败，使用基础大纲模板")
+        # 所有尝试都失败，返回增强的基础大纲模板
+        print(f"所有AI生成尝试失败，使用增强的基础大纲模板")
+        print(f"[INFO] 基础模板包含7个主要部分和详细子点，仍能提供完整的综述结构指导")
         self.performance_stats['errors'] += 1
         return self._generate_basic_outline(research_topic)
     
     def _validate_outline(self, outline: str) -> bool:
         """验证大纲质量"""
-        if not outline or len(outline.strip()) < 100:
+        if not outline or len(outline.strip()) < 50:  # 降低长度要求为50字符，与主系统一致
+            print(f"[DEBUG] 大纲验证失败: 长度不足，当前长度={len(outline.strip())}")
             return False
         
         # 检查是否包含必要结构
         required_sections = ['引言', '结论', '总结']
         has_required = any(section in outline for section in required_sections)
+        print(f"[DEBUG] 必要结构检查: {has_required}, 检查内容: {[section for section in required_sections if section in outline]}")
         
         # 检查是否有层级结构
         has_hierarchy = '##' in outline or '###' in outline or '-' in outline
+        print(f"[DEBUG] 层级结构检查: {has_hierarchy}")
         
-        # 检查是否有字数建议
-        has_word_count = '字' in outline and '约' in outline
+        # 检查是否有字数建议 - 放宽要求，只需要包含"字"即可
+        has_word_count = '字' in outline
+        print(f"[DEBUG] 字数建议检查: {has_word_count}")
+        
+        print(f"[DEBUG] 大纲验证结果: 必要结构={has_required}, 层级结构={has_hierarchy}, 字数建议={has_word_count}")
+        print(f"[DEBUG] 大纲前500字符: {outline[:500]}")
         
         return has_required and has_hierarchy and has_word_count
+    
+    def _clean_ai_intro(self, content: str) -> str:
+        """清理AI生成内容前面的引导语"""
+        if not content:
+            return content
+        
+        lines = content.split('\n')
+        cleaned_lines = []
+        start_found = False
+        
+        # 定义可能的引导语模式
+        intro_patterns = [
+            '好的，作为',
+            '作为',
+            '根据您提供的',
+            '基于您提供的',
+            '我已对您提供的',
+            '我将为您',
+            '以下是',
+            '现在我为您',
+            '基于以上',
+            '根据以上'
+        ]
+        
+        for line in lines:
+            line = line.strip()
+            
+            # 如果还没找到开始位置，检查是否是引导语
+            if not start_found:
+                # 检查是否是大纲的开始标记
+                if (line.startswith('#') or 
+                    line.startswith('##') or 
+                    line.startswith('- ') or
+                    line.startswith('1.') or
+                    line.startswith('一、') or
+                    line.startswith('二、')):
+                    start_found = True
+                    cleaned_lines.append(line)
+                # 检查是否是引导语
+                elif any(pattern in line for pattern in intro_patterns):
+                    # 跳过引导语行
+                    continue
+                # 如果不是空行且不是引导语，可能是内容的一部分
+                elif line and not any(pattern in line for pattern in intro_patterns):
+                    # 检查是否包含实际内容标记
+                    if ('##' in line or '字' in line or '引言' in line or '结论' in line):
+                        start_found = True
+                        cleaned_lines.append(line)
+            else:
+                # 已经找到开始位置，保留所有后续内容
+                cleaned_lines.append(line)
+        
+        # 重新组合内容
+        cleaned_content = '\n'.join(cleaned_lines).strip()
+        
+        # 如果没有找到有效内容，返回原始内容
+        if not cleaned_content:
+            return content
+        
+        return cleaned_content
     
     def _build_outline_prompt_optimized(self, abstracts: List[str], research_topic: str) -> str:
         """优化的提示词构建方法"""
         
         # 处理所有传入的摘要，不设上限
-        actual_total_count = len(abstracts)  # 实际总文献数
-        processed_count = actual_total_count  # 处理所有文献
-        
         abstracts_text = "\n\n".join([f"摘要{i+1}: {abstract}" for i, abstract in enumerate(abstracts)])
         
-        # 动态调整提示词
-        prompt = f"""
+        # 使用自定义提示词模板
+        try:
+            prompt = self.prompts_manager.get_outline_generation_prompt(
+                topic=research_topic,
+                literature_summary=abstracts_text
+            )
+            return prompt
+        except Exception as e:
+            print(f"[WARN] 使用自定义提示词失败，回退到默认提示词: {e}")
+            
+            # 回退到默认提示词
+            actual_total_count = len(abstracts)
+            prompt = f"""
 # 任务：生成医学文献综述写作大纲
 
 ## 1. 角色与目标
@@ -624,7 +709,7 @@ class ReviewOutlineGenerator:
 
 请基于以上内容生成结构化的大纲。
 """
-        return prompt
+            return prompt
     
     def _generate_outline_with_ai(self, abstracts: List[str], research_topic: str) -> str:
         """兼容性方法"""

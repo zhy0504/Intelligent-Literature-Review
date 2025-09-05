@@ -215,10 +215,12 @@ class MedicalReviewGenerator:
                     reader = csv.DictReader(f)
                     data = []
                     for i, row in enumerate(reader, 1):
-                        if row.get('标题') and row.get('标题').strip():
+                        # 安全地检查标题字段
+                        title_value = row.get('标题') or ''
+                        if isinstance(title_value, str) and title_value.strip():
                             data.append({
                                 'id': i,
-                                'title': row.get('标题', ''),
+                                'title': title_value.strip(),
                                 'authors': row.get('作者', ''),
                                 'journal': row.get('期刊', ''),
                                 'year': int(row.get('发表年份', '2023')) if row.get('发表年份') and row.get('发表年份').isdigit() else 2023,
@@ -385,7 +387,17 @@ class MedicalReviewGenerator:
             literature_info += f"\n[{i}] {lit.title}\n作者: {lit.authors}\n期刊: {lit.journal} ({lit.year})\n摘要: {lit.abstract}\n"
         
         # 构建专业的提示词
-        prompt = f"""你是一位资深的医学综述撰写专家。请根据以下大纲和文献，撰写一篇完整、连贯的医学综述文章。
+        try:
+            prompt = self.prompts_manager.get_review_generation_prompt(
+                title=title or "医学综述",
+                outline_content=outline_content,
+                literature_info=literature_info
+            )
+        except Exception as e:
+            print(f"[WARN] 使用自定义提示词失败，回退到默认提示词: {e}")
+            
+            # 回退到默认提示词
+            prompt = f"""你是一位资深的医学综述撰写专家。请根据以下大纲和文献，撰写一篇完整、连贯的医学综述文章。
 
 **文章标题**: {title or "医学综述"}
 
@@ -405,6 +417,7 @@ class MedicalReviewGenerator:
 7. 段落内语言流畅自然，避免生硬的拼接感
 8. 结论部分要总结全文，提出展望
 9. 输出完整的Markdown格式文章，包含标题层级
+10. **重要：文章结尾不要包含参考文献部分**，参考文献将由系统自动添加
 
 请直接输出完整的综述文章："""
         
@@ -425,10 +438,14 @@ class MedicalReviewGenerator:
             # 格式化响应
             article_content = self.ai_client.format_response(response, self.adapter.config.api_type)
             
-            # 添加参考文献
-            if not "## 参考文献" in article_content:
-                references = self.generate_references(literature)
-                article_content += f"\n\n## 参考文献\n\n{references}"
+            # 清理AI引导语
+            article_content = self._clean_ai_intro(article_content)
+            
+            # 首先添加完整的AMA格式参考文献列表
+            article_content = self._add_complete_references(article_content, literature)
+            
+            # 然后重新排序引用标记和参考文献
+            article_content = self._reorder_citations_and_references(article_content, literature)
             
             print("完整医学综述文章生成完成!")
             return article_content.strip()
@@ -460,9 +477,121 @@ class MedicalReviewGenerator:
 7. 段落内语言流畅自然，避免生硬的拼接感
 8. 结论部分要总结全文，提出展望
 9. 输出完整的Markdown格式文章，包含标题层级
+10. **重要：文章结尾不要包含参考文献部分**，参考文献将由系统自动添加
 
 请直接输出完整的综述文章：
 """
+    
+    def _add_complete_references(self, article_content: str, literature: List[Literature]) -> str:
+        """
+        添加完整的AMA格式参考文献列表到文章末尾
+        
+        Args:
+            article_content: 原始文章内容
+            literature: 完整文献列表
+            
+        Returns:
+            str: 添加了完整参考文献列表的文章内容
+        """
+        # 如果文章中已经有参考文献部分，先移除它
+        # 匹配从"## 参考文献"开始到文章结尾或下一个二级标题的内容
+        reference_section_pattern = r'##\s*参考文献\s*\n.*$'
+        article_content = re.sub(reference_section_pattern, '', article_content, flags=re.MULTILINE | re.DOTALL)
+        
+        # 清理末尾多余的空行
+        article_content = article_content.rstrip()
+        
+        # 生成完整的AMA格式参考文献列表
+        complete_references = self.generate_references(literature)
+        
+        # 在文章末尾添加完整的参考文献列表
+        article_content += f"\n\n## 参考文献\n\n{complete_references}"
+        
+        print(f"已添加完整参考文献列表 ({len(literature)} 篇文献)")
+        return article_content
+
+    def _reorder_citations_and_references(self, article_content: str, literature: List[Literature]) -> str:
+        """
+        重新排序引用标记和参考文献
+        按文章中引用出现的顺序重新编号，只保留被引用的文献
+        
+        Args:
+            article_content: 原始文章内容
+            literature: 文献列表
+            
+        Returns:
+            str: 重新编号后的文章内容
+        """
+        import re
+        
+        # 1. 提取文章中所有的引用标记 [数字]
+        citation_pattern = r'\[(\d+)\]'
+        citations = re.findall(citation_pattern, article_content)
+        
+        print(f"找到的引用标记: {citations[:10]}...")  # 只显示前10个
+        
+        if not citations:
+            print("文章中未发现引用标记，跳过重新编号")
+            return article_content
+        
+        # 2. 按出现顺序去重，保持顺序
+        cited_indices = []
+        seen = set()
+        for citation in citations:
+            idx = int(citation) - 1  # 转换为0基索引
+            if idx not in seen and 0 <= idx < len(literature):
+                cited_indices.append(idx)
+                seen.add(idx)
+        
+        print(f"按出现顺序的文献索引: {cited_indices[:10]}...")  # 只显示前10个
+        
+        if not cited_indices:
+            print("未找到有效的引用索引，保持原样")
+            return article_content
+        
+        print(f"发现 {len(cited_indices)} 个被引用的文献，按出现顺序重新编号")
+        
+        # 3. 创建旧索引到新索引的映射
+        old_to_new = {}
+        for new_idx, old_idx in enumerate(cited_indices):
+            old_to_new[old_idx + 1] = new_idx + 1  # 转回1基索引
+        
+        print(f"索引映射示例: {dict(list(old_to_new.items())[:5])}")  # 显示前5个映射
+        
+        # 4. 替换文章中的引用标记
+        def replace_citation(match):
+            old_num = int(match.group(1))
+            new_num = old_to_new.get(old_num)
+            if new_num:
+                return f"[{new_num}]"
+            else:
+                # 如果引用的文献不在列表中，保持原样但添加警告注释
+                return f"[{old_num}]"  
+        
+        updated_content = re.sub(citation_pattern, replace_citation, article_content)
+        
+        # 5. 生成重新排序的参考文献列表（只包含被引用的）
+        cited_literature = [literature[idx] for idx in cited_indices]
+        new_references = self.generate_references(cited_literature)
+        
+        # 6. 替换或添加参考文献部分
+        reference_section_pattern = r'##\s*参考文献\s*\n.*$'
+        if re.search(reference_section_pattern, updated_content, re.MULTILINE | re.DOTALL):
+            # 替换现有的参考文献部分
+            updated_content = re.sub(
+                reference_section_pattern, 
+                f"## 参考文献\n\n{new_references}", 
+                updated_content, 
+                flags=re.MULTILINE | re.DOTALL
+            )
+            print("替换了现有的参考文献部分")
+        else:
+            # 添加新的参考文献部分
+            updated_content += f"\n\n## 参考文献\n\n{new_references}"
+            print("添加了新的参考文献部分")
+        
+        print(f"引用重新编号完成: {len(literature)} → {len(cited_literature)} 篇文献")
+        return updated_content
     
     def generate_references(self, literature: List[Literature]) -> str:
         """
@@ -482,6 +611,69 @@ class MedicalReviewGenerator:
             references.append(ref)
         
         return '\n'.join(references)
+    
+    def _clean_ai_intro(self, content: str) -> str:
+        """清理AI生成内容前面的引导语"""
+        if not content:
+            return content
+        
+        lines = content.split('\n')
+        cleaned_lines = []
+        start_found = False
+        
+        # 定义可能的引导语模式
+        intro_patterns = [
+            '好的，作为',
+            '作为一名资深的医学综述撰写专家',
+            '作为',
+            '根据您提供的',
+            '基于您提供的',
+            '我已对您提供的',
+            '我将为您',
+            '我将根据',
+            '以下是',
+            '现在我为您',
+            '基于以上',
+            '根据以上'
+        ]
+        
+        for line in lines:
+            original_line = line
+            line = line.strip()
+            
+            # 如果还没找到开始位置，检查是否是引导语
+            if not start_found:
+                # 检查是否是文章的开始标记（标题或第一个章节）
+                if (line.startswith('#') and not any(pattern in line for pattern in intro_patterns)):
+                    start_found = True
+                    cleaned_lines.append(original_line)
+                # 检查是否是引导语
+                elif any(pattern in line for pattern in intro_patterns):
+                    # 跳过引导语行
+                    continue
+                # 如果不是空行且不是引导语，可能是内容的一部分
+                elif line and not any(pattern in line for pattern in intro_patterns):
+                    # 检查是否包含实际内容标记
+                    if ('##' in line or '　　' in line or line.startswith('　　') or 
+                        '摘要' in line or '引言' in line or '结论' in line):
+                        start_found = True
+                        cleaned_lines.append(original_line)
+                # 空行也保留，但不算作开始
+                elif not line:
+                    if start_found:
+                        cleaned_lines.append(original_line)
+            else:
+                # 已经找到开始位置，保留所有后续内容
+                cleaned_lines.append(original_line)
+        
+        # 重新组合内容
+        cleaned_content = '\n'.join(cleaned_lines).strip()
+        
+        # 如果没有找到有效内容，返回原始内容
+        if not cleaned_content:
+            return content
+        
+        return cleaned_content
     
     def save_article(self, content: str, filename: str = None, user_input: str = None) -> str:
         """

@@ -25,7 +25,6 @@ class AdvancedCLI(IntelligentLiteratureCLI):
         super().__init__()
         self.history_file = self.project_root / ".cli_history.json"
         self.log_file = self.project_root / "logs" / "cli.log"
-        self.output_dir = self.project_root / "综述文章"
         
         # 创建日志目录
         self.log_file.parent.mkdir(exist_ok=True)
@@ -153,7 +152,11 @@ class AdvancedCLI(IntelligentLiteratureCLI):
         # 目录结构
         print(f"\n目录结构:")
         print(f"  数据目录: {'存在' if self.data_dir.exists() else '不存在'}")
-        print(f"  输出目录: {'存在' if self.output_dir.exists() else '不存在'}")
+        # 检查各种输出目录
+        review_dir = self.project_root / "综述文章"
+        outline_dir = self.project_root / "综述大纲"
+        print(f"  综述文章目录: {'存在' if review_dir.exists() else '不存在'}")
+        print(f"  综述大纲目录: {'存在' if outline_dir.exists() else '不存在'}")
         print(f"  提示词目录: {'存在' if (self.project_root / 'prompts').exists() else '不存在'}")
         
         # 数据文件详细检查
@@ -690,14 +693,19 @@ class AdvancedCLI(IntelligentLiteratureCLI):
             print("=" * 60)
             
             print(f"数据目录: {self.data_dir}")
-            print(f"输出目录: {self.output_dir}")
+            review_dir = self.project_root / "综述文章"
+            outline_dir = self.project_root / "综述大纲"
+            print(f"综述文章目录: {review_dir}")
+            print(f"综述大纲目录: {outline_dir}")
             
             # 显示目录大小
             data_size = self.get_dir_size(self.data_dir)
-            output_size = self.get_dir_size(self.output_dir)
+            review_size = self.get_dir_size(review_dir) if review_dir.exists() else 0
+            outline_size = self.get_dir_size(outline_dir) if outline_dir.exists() else 0
             
             print(f"数据目录大小: {data_size}")
-            print(f"输出目录大小: {output_size}")
+            print(f"综述文章目录大小: {review_size}")
+            print(f"综述大纲目录大小: {outline_size}")
             
             print("\n选项:")
             print("1. 查看数据文件")
@@ -789,7 +797,14 @@ class AdvancedCLI(IntelligentLiteratureCLI):
         try:
             # 备份数据和输出目录
             shutil.copytree(self.data_dir, backup_path / "data")
-            shutil.copytree(self.output_dir, backup_path / "output")
+            
+            # 备份输出目录（如果存在）
+            review_dir = self.project_root / "综述文章"
+            outline_dir = self.project_root / "综述大纲"
+            if review_dir.exists():
+                shutil.copytree(review_dir, backup_path / "综述文章")
+            if outline_dir.exists():
+                shutil.copytree(outline_dir, backup_path / "综述大纲")
             
             # 备份配置文件
             if self.ai_config_file.exists():
@@ -842,10 +857,18 @@ class AdvancedCLI(IntelligentLiteratureCLI):
                 shutil.copytree(backup_path / "data", self.data_dir)
             
             # 恢复输出目录
-            if (backup_path / "output").exists():
-                if self.output_dir.exists():
-                    shutil.rmtree(self.output_dir)
-                shutil.copytree(backup_path / "output", self.output_dir)
+            review_dir = self.project_root / "综述文章"
+            outline_dir = self.project_root / "综述大纲"
+            
+            if (backup_path / "综述文章").exists():
+                if review_dir.exists():
+                    shutil.rmtree(review_dir)
+                shutil.copytree(backup_path / "综述文章", review_dir)
+                
+            if (backup_path / "综述大纲").exists():
+                if outline_dir.exists():
+                    shutil.rmtree(outline_dir)
+                shutil.copytree(backup_path / "综述大纲", outline_dir)
             
             # 恢复配置文件
             if (backup_path / "ai_config.yaml").exists():
@@ -1037,12 +1060,17 @@ class AdvancedCLI(IntelligentLiteratureCLI):
         print(f"AI配置: {'✓' if ai_ok else '✗'} {ai_config['valid_services']} 个有效服务")
         
         # 检查目录结构
+        review_dir = self.project_root / "综述文章"
+        outline_dir = self.project_root / "综述大纲"
         dirs_ok = all([
             self.data_dir.exists(),
-            self.output_dir.exists(),
             (self.project_root / 'prompts').exists()
         ])
         print(f"目录结构: {'✓' if dirs_ok else '✗'}")
+        print(f"  数据目录: {'存在' if self.data_dir.exists() else '缺失'}")
+        print(f"  综述文章目录: {'存在' if review_dir.exists() else '未创建'}")
+        print(f"  综述大纲目录: {'存在' if outline_dir.exists() else '未创建'}")
+        print(f"  提示词目录: {'存在' if (self.project_root / 'prompts').exists() else '缺失'}")
         
         # 整体状态
         all_ok = all([version_ok, venv_status['venv_exists'], deps_ok, ai_ok, dirs_ok])
@@ -1151,9 +1179,15 @@ class AdvancedCLI(IntelligentLiteratureCLI):
                 # 目录信息
                 f.write("目录信息:\n")
                 f.write(f"  数据目录: {self.data_dir}\n")
-                f.write(f"  输出目录: {self.output_dir}\n")
+                review_dir = self.project_root / "综述文章"
+                outline_dir = self.project_root / "综述大纲"
+                f.write(f"  综述文章目录: {review_dir}\n")
+                f.write(f"  综述大纲目录: {outline_dir}\n")
                 f.write(f"  数据大小: {self.get_dir_size(self.data_dir)}\n")
-                f.write(f"  输出大小: {self.get_dir_size(self.output_dir)}\n\n")
+                review_size = self.get_dir_size(review_dir) if review_dir.exists() else 0
+                outline_size = self.get_dir_size(outline_dir) if outline_dir.exists() else 0
+                f.write(f"  综述文章大小: {review_size}\n")
+                f.write(f"  综述大纲大小: {outline_size}\n\n")
                 
                 # 操作历史
                 f.write("最近操作:\n")
