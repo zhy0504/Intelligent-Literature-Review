@@ -346,7 +346,7 @@ def install_dependencies(system_cache: SystemCache = None) -> bool:
 
 
 def check_data_files(progress_tracker: ProgressTracker = None) -> bool:
-    """检查数据文件"""
+    """检查数据文件 - 优先检测预处理文件"""
     if progress_tracker:
         progress_tracker.update("数据文件检查", "PROCESSING")
     
@@ -355,19 +355,20 @@ def check_data_files(progress_tracker: ProgressTracker = None) -> bool:
     print_status("检查数据文件...")
     
     data_dir = base_dir / "data"
-    required_files = ["zky.csv", "jcr.csv"]
-    optional_files = ["processed_zky_data.csv", "processed_jcr_data.csv"]
     
     if not data_dir.exists():
         error_msg = "data目录不存在"
         solution = "请在项目根目录创建data目录并放入所需文件"
         raise EnvironmentError("数据文件", "目录缺失", error_msg, solution)
     
-    # 检查必需文件
-    missing_files = []
+    # 首先检查预处理文件（软件实际使用的）
+    processed_files = ["processed_zky_data.csv", "processed_jcr_data.csv"]
+    raw_files = ["zky.csv", "jcr.csv"] 
     file_info = {}
     
-    for file_name in required_files:
+    # 检查预处理文件
+    missing_processed = []
+    for file_name in processed_files:
         file_path = data_dir / file_name
         if file_path.exists():
             file_size = file_path.stat().st_size
@@ -376,33 +377,49 @@ def check_data_files(progress_tracker: ProgressTracker = None) -> bool:
                 'size_mb': file_size / (1024 * 1024),
                 'exists': True
             }
-            print(f"    [OK] {file_name} (大小: {file_size:,} 字节, {file_info[file_name]['size_mb']:.2f} MB)")
+            print(f"    [OK] {file_name} (预处理数据) (大小: {file_size:,} 字节, {file_info[file_name]['size_mb']:.2f} MB)")
+            
+            # 检查文件大小是否过小
+            if file_size < 1024:
+                print_status(f"警告: {file_name} 文件大小过小，可能损坏", "WARNING")
         else:
-            missing_files.append(file_name)
+            missing_processed.append(file_name)
             file_info[file_name] = {'exists': False}
-            print(f"    [MISSING] {file_name}")
+            print(f"    [MISSING] {file_name} (预处理数据)")
     
-    # 检查可选文件
-    for file_name in optional_files:
-        file_path = data_dir / file_name
-        if file_path.exists():
-            file_size = file_path.stat().st_size
-            file_info[file_name] = {
-                'size': file_size,
-                'size_mb': file_size / (1024 * 1024),
-                'exists': True
-            }
-            print(f"    [OK] {file_name} (可选) (大小: {file_size:,} 字节)")
-    
-    if missing_files:
-        error_msg = f"缺失必需数据文件: {', '.join(missing_files)}"
-        solution = "请确保将这些文件放在 data/ 目录下"
-        raise EnvironmentError("数据文件", "文件缺失", error_msg, solution)
-    
-    # 检查文件大小是否过小（可能文件损坏）
-    for file_name in required_files:
-        if file_info[file_name]['exists'] and file_info[file_name]['size'] < 1024:
-            print_status(f"警告: {file_name} 文件大小过小，可能损坏", "WARNING")
+    # 如果预处理文件缺失，检查原始文件
+    if missing_processed:
+        print_status("预处理文件缺失，检查原始数据文件...", "INFO")
+        missing_raw = []
+        
+        for file_name in raw_files:
+            file_path = data_dir / file_name
+            if file_path.exists():
+                file_size = file_path.stat().st_size
+                file_info[file_name] = {
+                    'size': file_size,
+                    'size_mb': file_size / (1024 * 1024),
+                    'exists': True
+                }
+                print(f"    [OK] {file_name} (原始数据) (大小: {file_size:,} 字节, {file_info[file_name]['size_mb']:.2f} MB)")
+                
+                # 检查文件大小是否过小
+                if file_size < 1024:
+                    print_status(f"警告: {file_name} 文件大小过小，可能损坏", "WARNING")
+            else:
+                missing_raw.append(file_name)
+                file_info[file_name] = {'exists': False}
+                print(f"    [MISSING] {file_name} (原始数据)")
+        
+        # 如果原始文件也缺失，抛出错误
+        if missing_raw:
+            error_msg = f"缺失数据文件: 预处理文件 {missing_processed} 和原始文件 {missing_raw}"
+            solution = "请将原始数据文件 zky.csv 和 jcr.csv 放在 data/ 目录下，系统会自动处理生成预处理文件"
+            raise EnvironmentError("数据文件", "文件缺失", error_msg, solution)
+        
+        # 原始文件存在但预处理文件缺失，给出提示
+        print_status("发现原始数据文件，但预处理文件缺失", "WARNING")
+        print_status("系统运行时会自动从原始文件生成预处理文件", "INFO")
     
     if progress_tracker:
         progress_tracker.update("数据文件检查", "OK")
@@ -690,6 +707,13 @@ def main():
     - 智能缓存机制，避免重复检查
     - 增强的错误处理和解决方案提示
     - 自动依赖包版本冲突检测和解决
+    - 智能数据文件检测: 优先检测预处理文件，自动处理原始数据
+
+数据文件说明:
+    - 系统优先使用预处理文件 (processed_zky_data.csv, processed_jcr_data.csv)
+    - 如果预处理文件不存在，会检查原始文件 (zky.csv, jcr.csv)
+    - 系统运行时会自动从原始文件生成预处理文件
+    - 预处理文件包含优化的索引和格式，提升检索性能
         """)
         return
     

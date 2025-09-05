@@ -156,7 +156,66 @@ class AdvancedCLI(IntelligentLiteratureCLI):
         print(f"  输出目录: {'存在' if self.output_dir.exists() else '不存在'}")
         print(f"  提示词目录: {'存在' if (self.project_root / 'prompts').exists() else '不存在'}")
         
+        # 数据文件详细检查
+        print(f"\n数据文件:")
+        self._check_data_files_status()
+        
         input("\n按回车键继续...")
+    
+    def _check_data_files_status(self):
+        """检查数据文件状态 - 与启动脚本逻辑一致"""
+        try:
+            # 检查预处理文件（软件实际使用的）
+            processed_files = ["processed_zky_data.csv", "processed_jcr_data.csv"]
+            raw_files = ["zky.csv", "jcr.csv"]
+            
+            # 检查预处理文件
+            missing_processed = []
+            for file_name in processed_files:
+                file_path = self.data_dir / file_name
+                if file_path.exists():
+                    file_size = file_path.stat().st_size
+                    size_mb = file_size / (1024 * 1024)
+                    print(f"  [OK] {file_name} (预处理数据) - {size_mb:.2f} MB")
+                    
+                    # 检查文件大小是否过小
+                    if file_size < 1024:
+                        print(f"      [WARNING] 文件大小过小，可能损坏")
+                else:
+                    missing_processed.append(file_name)
+                    print(f"  [MISSING] {file_name} (预处理数据)")
+            
+            # 如果预处理文件缺失，检查原始文件
+            if missing_processed:
+                print(f"  [INFO] 预处理文件缺失，检查原始数据文件...")
+                missing_raw = []
+                
+                for file_name in raw_files:
+                    file_path = self.data_dir / file_name
+                    if file_path.exists():
+                        file_size = file_path.stat().st_size
+                        size_mb = file_size / (1024 * 1024)
+                        print(f"  [OK] {file_name} (原始数据) - {size_mb:.2f} MB")
+                        
+                        # 检查文件大小是否过小
+                        if file_size < 1024:
+                            print(f"      [WARNING] 文件大小过小，可能损坏")
+                    else:
+                        missing_raw.append(file_name)
+                        print(f"  [MISSING] {file_name} (原始数据)")
+                
+                # 根据情况显示状态
+                if missing_raw:
+                    print(f"  [ERROR] 缺失数据文件: 预处理文件 {missing_processed} 和原始文件 {missing_raw}")
+                    print(f"  [SOLUTION] 请将原始数据文件 zky.csv 和 jcr.csv 放在 data/ 目录下")
+                else:
+                    print(f"  [WARNING] 发现原始数据文件，但预处理文件缺失")
+                    print(f"  [INFO] 系统运行时会自动从原始文件生成预处理文件")
+            else:
+                print(f"  [OK] 所有数据文件就绪")
+                
+        except Exception as e:
+            print(f"  [ERROR] 检查数据文件时出错: {e}")
     
     def manage_virtual_environment(self):
         """虚拟环境管理"""

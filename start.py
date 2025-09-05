@@ -7,6 +7,7 @@
 
 import os
 import sys
+import platform
 from pathlib import Path
 
 # 添加项目根目录到Python路径
@@ -14,6 +15,184 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from advanced_cli import AdvancedCLI
+
+
+def show_system_status_non_interactive(cli):
+    """显示系统状态但不等待用户输入"""
+    print("\n" + "=" * 60)
+    print("系统状态详情")
+    print("=" * 60)
+    
+    # Python版本
+    version_ok, version_msg = cli.check_python_version()
+    print(f"Python版本: {version_msg}")
+    print(f"平台: {platform.system()} {platform.release()}")
+    print(f"架构: {platform.machine()}")
+    
+    # 虚拟环境
+    venv_status = cli.detect_virtual_environment()
+    print(f"\n虚拟环境:")
+    print(f"  状态: {venv_status['status']}")
+    print(f"  路径: {cli.venv_path if venv_status['venv_exists'] else '不存在'}")
+    print(f"  当前解释器: {venv_status['python_executable']}")
+    
+    # 依赖包
+    req_status = cli.get_requirements_status()
+    print(f"\n依赖包:")
+    if req_status['file_exists']:
+        print(f"  文件: {req_status['requirements_file']}")
+        print(f"  总包数: {req_status['total_packages']}")
+        print(f"  缺少: {len(req_status['missing_packages'])}")
+        print(f"  过期: {len(req_status['outdated_packages'])}")
+        
+        if req_status['missing_packages']:
+            print(f"  缺少包: {', '.join(req_status['missing_packages'])}")
+        if req_status['outdated_packages']:
+            print(f"  过期包: {', '.join(req_status['outdated_packages'])}")
+    else:
+        print("  依赖文件不存在")
+    
+    # AI配置
+    ai_config = cli.check_ai_config()
+    print(f"\nAI配置:")
+    print(f"  文件: {ai_config['config_file']}")
+    if ai_config['file_exists']:
+        print(f"  有效服务: {ai_config['valid_services']}")
+        print(f"  默认服务: {ai_config['default_service'] or '未设置'}")
+        
+        for service in ai_config['services']:
+            status_icon = "[OK]" if service.get('valid', False) else "[ERR]"
+            print(f"  {status_icon} {service['name']}: {service['status']}")
+    
+    # 提示词配置
+    prompts_config = cli.check_prompts_config()
+    print(f"\n提示词配置:")
+    print(f"  文件: {prompts_config['config_file']}")
+    if prompts_config['file_exists']:
+        print(f"  提示词类型: {len(prompts_config['prompt_types'])}")
+        print(f"  总提示词: {prompts_config['total_prompts']}")
+    
+    # 目录结构
+    print(f"\n目录结构:")
+    print(f"  数据目录: {'存在' if cli.data_dir.exists() else '不存在'}")
+    print(f"  输出目录: {'存在' if cli.output_dir.exists() else '不存在'}")
+    print(f"  提示词目录: {'存在' if (cli.project_root / 'prompts').exists() else '不存在'}")
+    
+    # 数据文件详细检查
+    print(f"\n数据文件:")
+    check_data_files_status_simple(cli)
+
+
+def check_data_files_status_simple(cli):
+    """简化的数据文件状态检查"""
+    try:
+        processed_files = ["processed_zky_data.csv", "processed_jcr_data.csv"]
+        raw_files = ["zky.csv", "jcr.csv"]
+        
+        missing_processed = []
+        for file_name in processed_files:
+            file_path = cli.data_dir / file_name
+            if file_path.exists():
+                file_size = file_path.stat().st_size
+                size_mb = file_size / (1024 * 1024)
+                print(f"  [OK] {file_name} (预处理数据) - {size_mb:.2f} MB")
+            else:
+                missing_processed.append(file_name)
+                print(f"  [MISSING] {file_name} (预处理数据)")
+        
+        if missing_processed:
+            print(f"  [INFO] 预处理文件缺失，检查原始数据文件...")
+            missing_raw = []
+            
+            for file_name in raw_files:
+                file_path = cli.data_dir / file_name
+                if file_path.exists():
+                    file_size = file_path.stat().st_size
+                    size_mb = file_size / (1024 * 1024)
+                    print(f"  [OK] {file_name} (原始数据) - {size_mb:.2f} MB")
+                else:
+                    missing_raw.append(file_name)
+                    print(f"  [MISSING] {file_name} (原始数据)")
+            
+            if missing_raw:
+                print(f"  [ERROR] 缺失数据文件: 预处理文件 {missing_processed} 和原始文件 {missing_raw}")
+            else:
+                print(f"  [WARNING] 发现原始数据文件，但预处理文件缺失")
+                print(f"  [INFO] 快速设置将自动生成预处理文件")
+        else:
+            print(f"  [OK] 所有数据文件就绪")
+            
+    except Exception as e:
+        print(f"  [ERROR] 检查数据文件时出错: {e}")
+
+
+def generate_processed_data() -> bool:
+    """生成预处理数据文件"""
+    try:
+        import subprocess
+        import sys
+        from pathlib import Path
+        
+        # 获取虚拟环境Python路径（与get_venv_paths逻辑一致）
+        base_dir = Path(__file__).parent
+        venv_dir = base_dir / "venv"
+        
+        if platform.system() == "Windows":
+            venv_python = venv_dir / "Scripts" / "python.exe"
+        else:
+            venv_python = venv_dir / "bin" / "python"
+        
+        # 检查虚拟环境是否存在
+        if not venv_python.exists():
+            print(f"  [ERROR] 虚拟环境Python解释器不存在: {venv_python}")
+            return False
+        
+        # 执行数据处理脚本
+        cmd = [
+            str(venv_python), 
+            "-c", 
+            """
+import sys
+import os
+sys.path.append('src')
+try:
+    from data_processor import JournalDataProcessor
+    print('正在处理中科院和JCR数据...')
+    processor = JournalDataProcessor()
+    processor.process_separate()
+    print('数据处理完成')
+except Exception as e:
+    print(f'数据处理失败: {e}')
+    sys.exit(1)
+"""
+        ]
+        
+        print("  正在调用数据处理器...")
+        result = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True, 
+            timeout=300,  # 5分钟超时
+            cwd=str(base_dir)
+        )
+        
+        # 显示处理输出
+        if result.stdout:
+            for line in result.stdout.strip().split('\n'):
+                if line.strip():
+                    print(f"  {line}")
+        
+        if result.stderr and result.returncode != 0:
+            print(f"  错误输出: {result.stderr}")
+        
+        return result.returncode == 0
+        
+    except subprocess.TimeoutExpired:
+        print("  [TIMEOUT] 数据处理超时（超过5分钟）")
+        return False
+    except Exception as e:
+        print(f"  [ERROR] 调用数据处理器失败: {e}")
+        return False
 
 
 def start_literature_system():
@@ -55,7 +234,7 @@ def show_quick_menu():
     print("智能文献系统快速启动")
     print("=" * 50)
     print("1. 系统状态检查")
-    print("2. 快速设置（首次使用）")
+    print("2. 快速设置（含完整状态检查 + 自动配置）")
     print("3. 启动文献系统")
     print("4. 高级管理")
     print("5. 帮助文档")
@@ -68,9 +247,21 @@ def quick_setup(cli):
     print("\n快速设置向导")
     print("-" * 30)
     
+    # 首先显示完整的系统状态检查（但不等待用户输入）
+    print("正在进行系统状态检查...")
+    print("=" * 50)
+    
+    # 调用系统状态检查但不等待输入
+    show_system_status_non_interactive(cli)
+    
+    # 根据检查结果询问是否继续设置
+    print("\n" + "=" * 50)
+    print("基于上述检查结果，开始快速设置")
+    print("=" * 50)
+    
     # 检查Python版本
     version_ok, version_msg = cli.check_python_version()
-    print(f"Python版本: {version_msg}")
+    print(f"\nPython版本: {version_msg}")
     if not version_ok:
         print("请升级Python版本")
         return
@@ -107,13 +298,59 @@ def quick_setup(cli):
     
     print("\n快速设置完成!")
     
+    # 检查数据文件状态并给出提示
+    print("\n" + "=" * 50)
+    print("数据文件状态检查")
+    print("=" * 50)
+    
+    try:
+        from pathlib import Path
+        data_dir = Path("data")
+        processed_files = ["processed_zky_data.csv", "processed_jcr_data.csv"]
+        raw_files = ["zky.csv", "jcr.csv"]
+        
+        missing_processed = []
+        missing_raw = []
+        
+        # 检查预处理文件
+        for file_name in processed_files:
+            if not (data_dir / file_name).exists():
+                missing_processed.append(file_name)
+        
+        # 检查原始文件
+        for file_name in raw_files:
+            if not (data_dir / file_name).exists():
+                missing_raw.append(file_name)
+        
+        if not missing_processed:
+            print("[OK] 预处理数据文件完整，系统可直接使用")
+        elif not missing_raw:
+            print("[INFO] 预处理文件缺失，但原始数据文件存在")
+            print("[INFO] 正在生成预处理文件...")
+            
+            # 在虚拟环境中生成预处理文件
+            if generate_processed_data():
+                print("[SUCCESS] 预处理文件生成完成！")
+                print("[INFO] 系统现在完全就绪，可以直接使用")
+            else:
+                print("[ERROR] 预处理文件生成失败")
+                print("[INFO] 系统首次运行时会自动重试生成预处理文件")
+        else:
+            print("[WARNING] 缺少数据文件！")
+            print(f"[MISSING] 需要的文件: {', '.join(raw_files)}")
+            print("[SOLUTION] 请将 zky.csv 和 jcr.csv 文件放入 data/ 目录")
+            print("           这些文件包含中科院分区和JCR分区数据，是系统筛选期刊的重要依据")
+    
+    except Exception as e:
+        print(f"[ERROR] 检查数据文件时出错: {e}")
+    
     # 根据AI配置状态显示相应的提示
     if ai_config['valid_services'] > 0:
-        print(f"[OK] AI配置已完成，已有 {ai_config['valid_services']} 个有效服务")
+        print(f"\n[OK] AI配置已完成，已有 {ai_config['valid_services']} 个有效服务")
         if ai_config['invalid_services'] > 0:
             print(f"[WARN] 有 {ai_config['invalid_services']} 个服务配置不完整，可编辑 ai_config.yaml 优化")
     else:
-        print("[ERROR] 请编辑AI配置文件 ai_config.yaml，添加您的API密钥")
+        print("\n[ERROR] 请编辑AI配置文件 ai_config.yaml，添加您的API密钥")
 
 
 def show_help():
