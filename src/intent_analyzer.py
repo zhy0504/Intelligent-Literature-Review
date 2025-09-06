@@ -452,10 +452,13 @@ class IntentAnalyzer:
                     preferred_index = i + 1  # 显示的序号是从1开始的
                     break
             
+            print(f"\n{'='*50}")
             print(f"[FIND] 从端点获取到 {len(models)} 个可用模型:")
+            print('='*50)
             for i, model in enumerate(models, 1):
                 prefix = "🌟 " if preferred_index == i else "  "
                 print(f"{prefix}{i}. {model.id}")
+            print('='*50)
             
             # 设置默认选项提示
             default_choice = f"[{preferred_index}]" if preferred_index else "[1]"
@@ -521,8 +524,15 @@ class IntentAnalyzer:
             
             self.performance_stats['ai_calls'] += 1
             
-            # 解析响应
-            ai_response = self.ai_client.format_response(response, self.adapter.config.api_type)
+            # 直接处理响应解析，不依赖format_response方法
+            ai_response = self._extract_response_content(response)
+            
+            # 如果响应为空，使用基础策略
+            if not ai_response or ai_response.strip() == "":
+                print(f"解析AI响应失败: 服务器返回空响应")
+                print(f"AI响应内容: (空)")
+                return SearchCriteria(query=user_input)
+            
             criteria = self._parse_ai_response_with_validation(ai_response, user_input)
             
             # 缓存结果
@@ -688,6 +698,42 @@ class IntentAnalyzer:
 """
         return prompt
     
+    def _extract_response_content(self, response: Dict[str, Any]) -> str:
+        """直接从响应中提取内容，不依赖外部format_response"""
+        if 'error' in response:
+            return f"错误: {response['error']}"
+        
+        try:
+            if self.adapter.config.api_type.lower() == 'openai':
+                choices = response.get('choices', [])
+                if choices:
+                    content = choices[0].get('message', {}).get('content', '')
+                    if isinstance(content, list):
+                        content = ' '.join(str(item) for item in content)
+                    elif not isinstance(content, str):
+                        content = str(content)
+                    return content.strip()
+            
+            elif self.adapter.config.api_type.lower() == 'gemini':
+                candidates = response.get('candidates', [])
+                if candidates:
+                    content = candidates[0].get('content', {})
+                    parts = content.get('parts', [])
+                    if parts:
+                        text = parts[0].get('text', '')
+                        if isinstance(text, list):
+                            text = ' '.join(str(item) for item in text)
+                        elif not isinstance(text, str):
+                            text = str(text)
+                        return text.strip()
+            
+        except (KeyError, IndexError, TypeError) as e:
+            print(f"响应内容提取失败: {e}")
+            return ""
+        
+        # 如果无法解析，返回空字符串
+        return ""
+
     def _parse_ai_response_with_validation(self, ai_response: str, original_input: str) -> SearchCriteria:
         """解析AI响应 - 增强验证和错误恢复"""
         try:

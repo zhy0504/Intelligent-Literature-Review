@@ -438,20 +438,24 @@ class IntelligentLiteratureSystem:
             safe_print("[0/6] 系统组件初始化: 开始初始化...")
             safe_print("[..........................] 0.0% - 用时: 0.0s")
             
-            # 使用线程池并行初始化组件
-            with ThreadPoolExecutor(max_workers=6) as executor:
-                # 提交所有初始化任务
+            # 先单独初始化意图分析器（避免交互界面混乱）
+            print("\n[PRIORITY] 优先初始化交互组件...")
+            intent_success = self._init_intent_analyzer_safe()
+            progress_tracker.update("意图分析器", "初始化成功" if intent_success else "初始化失败")
+            
+            # 使用线程池并行初始化其他组件
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                # 提交其他初始化任务（排除意图分析器）
                 future_to_component = {
                     executor.submit(self._init_data_processor_safe): ("数据处理器", safe_print),
-                    executor.submit(self._init_intent_analyzer_safe): ("意图分析器", safe_print),
                     executor.submit(self._init_pubmed_searcher_safe): ("PubMed检索器", safe_print),
                     executor.submit(self._init_literature_filter_safe): ("文献筛选器", safe_print),
                     executor.submit(self._init_outline_generator_safe): ("大纲生成器", safe_print),
                     executor.submit(self._init_review_generator_safe): ("文章生成器", safe_print)
                 }
                 
-                results = {}
-                errors = []
+                results = {"意图分析器": intent_success}  # 预设意图分析器结果
+                errors = [] if intent_success else ["意图分析器初始化失败"]
                 
                 # 收集结果
                 for future in as_completed(future_to_component):

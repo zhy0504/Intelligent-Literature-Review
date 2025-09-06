@@ -736,16 +736,19 @@ class GeminiAdapter(BaseAIAdapter):
             return self._models_cache
         
         try:
-            # 使用增强连接管理
+            # 使用增强连接管理，添加API key认证
+            import urllib.parse
+            api_url = f"{self.config.base_url}v1beta/models?key={urllib.parse.quote(self.config.api_key)}"
+            
             if self.enable_retry:
                 models_data = self.connection_manager.make_request_with_retry(
                     'GET',
-                    f"{self.config.base_url}v1beta/models",
+                    api_url,
                     max_retries=2
                 )
             else:
                 response = self.session.get(
-                    f"{self.config.base_url}v1beta/models",
+                    api_url,
                     timeout=self.config.timeout
                 )
                 response.raise_for_status()
@@ -756,9 +759,17 @@ class GeminiAdapter(BaseAIAdapter):
             for model in models_data.get('models', []):
                 # 只获取生成模型
                 if 'generateContent' in model.get('supportedGenerationMethods', []):
+                    # 保存完整的模型name用于API调用
+                    full_model_name = model['name']  # 完整路径，如 "models/假流式/gemini-2.5-pro-preview-06-05"
+                    
+                    # 使用displayName作为显示名称，如果有models/前缀则去掉
+                    display_name = model.get('displayName', model['name'])
+                    if display_name.startswith('models/'):
+                        display_name = display_name[7:]  # 去掉'models/'前缀
+                    
                     model_info = ModelInfo(
-                        id=model['name'].split('/')[-1],  # 提取模型名
-                        name=model.get('displayName', model['name']),
+                        id=full_model_name,  # API调用时需要完整路径
+                        name=display_name,   # 显示时使用简化名称
                         description=model.get('description', ''),
                         context_length=model.get('inputTokenLimit', 0),
                         supports_streaming=True
@@ -898,7 +909,7 @@ class GeminiAdapter(BaseAIAdapter):
                 # 其他参数直接使用
                 filtered_params[k] = v
         
-        # 转换消息格式 - 使用标准Gemini API格式（无role字段）
+        # 转换消息格式 - 使用标准Gemini API格式（需要role字段）
         contents = []
         
         # 合并所有用户消息内容
@@ -914,9 +925,10 @@ class GeminiAdapter(BaseAIAdapter):
                 # 但对于单轮对话，暂时跳过
                 pass
         
-        # 构建标准Gemini格式
+        # 构建标准Gemini格式 - 必须包含role字段
         contents = [
             {
+                "role": "user",  # 添加必需的role字段
                 "parts": [
                     {"text": combined_content.strip()}
                 ]
@@ -953,7 +965,9 @@ class GeminiAdapter(BaseAIAdapter):
         try:
             # 使用官方Gemini API格式，添加查询参数
             import urllib.parse
-            api_url = f"{self.config.base_url}v1beta/models/{model_id}:generateContent?key={urllib.parse.quote(self.config.api_key)}"
+            # 去掉model_id中的models/前缀，避免双重前缀
+            clean_model_id = model_id[7:] if model_id.startswith('models/') else model_id
+            api_url = f"{self.config.base_url}v1beta/models/{clean_model_id}:generateContent?key={urllib.parse.quote(self.config.api_key)}"
             
             if self.enable_retry:
                 response = self.connection_manager.make_request_with_retry(
@@ -984,7 +998,9 @@ class GeminiAdapter(BaseAIAdapter):
         try:
             # 使用官方Gemini API格式，添加查询参数
             import urllib.parse
-            api_url = f"{self.config.base_url}v1beta/models/{model_id}:streamGenerateContent?alt=sse&key={urllib.parse.quote(self.config.api_key)}"
+            # 去掉model_id中的models/前缀，避免双重前缀
+            clean_model_id = model_id[7:] if model_id.startswith('models/') else model_id
+            api_url = f"{self.config.base_url}v1beta/models/{clean_model_id}:streamGenerateContent?alt=sse&key={urllib.parse.quote(self.config.api_key)}"
             
             response = self.session.post(
                 api_url,
@@ -1006,10 +1022,16 @@ class GeminiAdapter(BaseAIAdapter):
                         # 手动解码为UTF-8
                         line_str = line.decode('utf-8', errors='ignore').strip()
                         
-                        # 官方Gemini API返回直接的JSON，没有data:前缀
-                        if line_str:
+                        # 处理SSE格式：去掉 data: 前缀
+                        if line_str.startswith('data: '):
+                            json_str = line_str[6:]  # 去掉 "data: " 前缀
+                        else:
+                            json_str = line_str
+                        
+                        # 官方Gemini API返回SSE格式的JSON
+                        if json_str:
                             try:
-                                chunk = json.loads(line_str)
+                                chunk = json.loads(json_str)
                                 
                                 # 提取内容
                                 candidates = chunk.get('candidates', [])
@@ -1026,9 +1048,9 @@ class GeminiAdapter(BaseAIAdapter):
                                             # 使用安全打印函数实时输出
                                             safe_print(text, end='', flush=True)
                             
-                            except json.JSONDecodeError:
+                            except json.JSONDecodeError as e:
                                 continue
-                    except UnicodeDecodeError:
+                    except UnicodeDecodeError as e:
                         continue
             
             # 返回完整响应格式（模拟非流式响应格式）
