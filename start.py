@@ -77,9 +77,99 @@ def show_system_status_non_interactive(cli):
     print(f"  数据目录: {'存在' if cli.data_dir.exists() else '不存在'}")
     print(f"  提示词目录: {'存在' if (cli.project_root / 'prompts').exists() else '不存在'}")
     
+    # Pandoc状态检查
+    pandoc_status = check_pandoc_status()
+    print(f"\nPandoc (DOCX导出):")
+    print(f"  状态: {pandoc_status['status']}")
+    if pandoc_status['path']:
+        print(f"  路径: {pandoc_status['path']}")
+        print(f"  版本: {pandoc_status['version']}")
+    else:
+        print(f"  建议: 运行 'python src/setup_pandoc_portable.py' 安装便携版")
+    
     # 数据文件详细检查
     print(f"\n数据文件:")
     check_data_files_status_simple(cli)
+
+
+def check_pandoc_status():
+    """检查Pandoc状态"""
+    import subprocess
+    import shutil
+    
+    # 先检查项目便携版
+    project_root = Path(__file__).parent
+    system = platform.system().lower()
+    
+    portable_paths = {
+        'windows': 'tools/pandoc/windows/pandoc.exe',
+        'linux': 'tools/pandoc/linux/pandoc',
+        'darwin': 'tools/pandoc/macos/pandoc'
+    }
+    
+    if system in portable_paths:
+        portable_path = project_root / portable_paths[system]
+        if portable_path.exists():
+            try:
+                result = subprocess.run([str(portable_path), '--version'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    version = result.stdout.split('\n')[0]
+                    return {
+                        'status': '已安装 (便携版)',
+                        'path': str(portable_path),
+                        'version': version
+                    }
+            except Exception:
+                pass
+    
+    # 检查系统PATH中的pandoc
+    pandoc_cmd = 'pandoc.exe' if system == 'windows' else 'pandoc'
+    pandoc_path = shutil.which(pandoc_cmd)
+    
+    if pandoc_path:
+        try:
+            result = subprocess.run([pandoc_cmd, '--version'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                version = result.stdout.split('\n')[0]
+                return {
+                    'status': '已安装 (系统)',
+                    'path': pandoc_path,
+                    'version': version
+                }
+        except Exception:
+            pass
+    
+    return {
+        'status': '未安装',
+        'path': None,
+        'version': None
+    }
+
+
+def install_pandoc_portable():
+    """安装Pandoc便携版"""
+    try:
+        # 动态导入安装脚本
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent / 'src'))
+        
+        # 导入并运行安装脚本
+        import setup_pandoc_portable
+        print("\n开始安装Pandoc便携版...")
+        pandoc_path = setup_pandoc_portable.setup_pandoc_portable()
+        
+        if pandoc_path:
+            print("✅ Pandoc便携版安装成功!")
+            return True
+        else:
+            print("❌ Pandoc便携版安装失败")
+            return False
+            
+    except Exception as e:
+        print(f"安装过程出错: {e}")
+        return False
 
 
 def check_data_files_status_simple(cli):
@@ -204,6 +294,15 @@ def start_literature_system():
     print("[INFO] 系统将先分析您的检索需求，显示总文献数后让您决定获取数量")
     print("=" * 50)
     
+    # 检查Pandoc状态并提示
+    pandoc_status = check_pandoc_status()
+    if pandoc_status['status'] != '未安装':
+        print(f"✅ Pandoc状态: {pandoc_status['status']} - 支持DOCX导出")
+    else:
+        print("⚠️  Pandoc未安装 - 仅支持Markdown格式")
+        print("   运行 'python src/setup_pandoc_portable.py' 安装便携版支持DOCX导出")
+    print()
+    
     try:
         # 获取AI配置中的默认服务
         cli = AdvancedCLI()
@@ -302,6 +401,17 @@ def quick_setup(cli):
     if not prompts_config['file_exists']:
         print("正在重置提示词配置...")
         cli.setup_prompts_config()
+    
+    # 检查Pandoc状态
+    pandoc_status = check_pandoc_status()
+    print(f"\nPandoc状态: {pandoc_status['status']}")
+    if pandoc_status['status'] == '未安装':
+        response = input("是否安装Pandoc便携版以支持DOCX导出? (y/n): ").strip().lower()
+        if response in ['y', 'yes', '是']:
+            if install_pandoc_portable():
+                print("Pandoc安装成功，现在支持DOCX导出功能")
+            else:
+                print("Pandoc安装失败，仍可使用Markdown格式")
     
     print("\n快速设置完成!")
     
@@ -477,6 +587,39 @@ def main():
         show_help()
     
     else:
+        # 启动前自动检测系统状态（包括Pandoc）
+        print("\n正在检测系统环境...")
+        
+        # 基本环境检查
+        version_ok, version_msg = cli.check_python_version()
+        venv_status = cli.detect_virtual_environment()
+        req_status = cli.get_requirements_status()
+        pandoc_status = check_pandoc_status()
+        
+        # 显示关键状态
+        issues = []
+        if not version_ok:
+            issues.append("Python版本过低")
+        if not venv_status['venv_exists']:
+            issues.append("虚拟环境未创建")
+        if req_status['missing_packages']:
+            issues.append(f"缺少{len(req_status['missing_packages'])}个依赖包")
+        if pandoc_status['status'] == '未安装':
+            issues.append("Pandoc未安装(无法导出DOCX)")
+        
+        if issues:
+            print("警告: 发现以下问题:")
+            for issue in issues:
+                print(f"   - {issue}")
+            print("建议运行 '2. 快速设置' 自动修复")
+        else:
+            print("系统环境检查正常")
+        
+        if pandoc_status['status'] == '未安装':
+            print(f"提示: 安装Pandoc支持DOCX导出: python src/setup_pandoc_portable.py")
+        else:
+            print(f"Pandoc: {pandoc_status['status']}")
+        
         # 显示快速菜单
         while True:
             show_quick_menu()

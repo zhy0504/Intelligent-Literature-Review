@@ -131,16 +131,29 @@ class SystemError(Exception):
 
 
 class PerformanceMonitor:
-    """性能监控器"""
+    """优化的性能监控器 - 区分串行和并行操作"""
     def __init__(self):
         self.metrics = {}
         self.start_times = {}
         self.operation_counts = {}
+        # 区分并行和串行操作
+        self.parallel_operations = set()  # 并行操作集合
+        self.workflow_operations = {'完整工作流程'}  # 工作流程操作
+        self.component_operations = {'组件初始化'}  # 组件初始化操作
     
-    def start_timing(self, operation: str):
-        """开始计时"""
+    def start_timing(self, operation: str, is_parallel: bool = False):
+        """
+        开始计时
+        
+        Args:
+            operation: 操作名称
+            is_parallel: 是否为并行操作
+        """
         self.start_times[operation] = time.time()
         self.operation_counts[operation] = self.operation_counts.get(operation, 0) + 1
+        
+        if is_parallel:
+            self.parallel_operations.add(operation)
     
     def end_timing(self, operation: str) -> float:
         """结束计时并返回耗时"""
@@ -152,31 +165,65 @@ class PerformanceMonitor:
         return 0.0
     
     def get_performance_report(self) -> Dict[str, Any]:
-        """获取性能报告"""
-        total_time = sum(self.metrics.values())
+        """获取优化的性能报告"""
+        # 分类操作
+        workflow_metrics = {op: time for op, time in self.metrics.items() 
+                          if op in self.workflow_operations}
+        component_metrics = {op: time for op, time in self.metrics.items() 
+                           if op in self.component_operations}
+        serial_metrics = {op: time for op, time in self.metrics.items() 
+                         if op not in self.workflow_operations 
+                         and op not in self.component_operations
+                         and op not in self.parallel_operations}
+        parallel_metrics = {op: time for op, time in self.metrics.items() 
+                          if op in self.parallel_operations}
+        
+        # 计算不同类型的总时间
+        serial_total = sum(serial_metrics.values())
+        parallel_total = max(parallel_metrics.values()) if parallel_metrics else 0
+        actual_workflow_time = sum(workflow_metrics.values())
+        
         return {
-            'total_time': total_time,
+            'actual_total_time': actual_workflow_time,  # 实际总时间（墙钟时间）
+            'serial_total_time': serial_total,          # 串行操作总时间
+            'parallel_total_time': parallel_total,      # 并行操作最大时间
             'operation_times': self.metrics,
             'operation_counts': self.operation_counts,
+            'operation_categories': {
+                'workflow': list(workflow_metrics.keys()),
+                'serial': list(serial_metrics.keys()),
+                'parallel': list(parallel_metrics.keys()),
+                'component': list(component_metrics.keys())
+            },
             'average_times': {op: self.metrics[op] / self.operation_counts[op] 
                             for op in self.metrics if op in self.operation_counts},
             'bottlenecks': self._identify_bottlenecks()
         }
     
     def _identify_bottlenecks(self) -> List[str]:
-        """识别性能瓶颈"""
+        """识别性能瓶颈 - 排除工作流程总时间"""
         if not self.metrics:
             return []
         
-        avg_times = {op: self.metrics[op] / self.operation_counts[op] 
-                    for op in self.metrics if op in self.operation_counts}
+        # 排除工作流程操作，只分析具体业务操作
+        filtered_times = {op: self.metrics[op] / self.operation_counts[op] 
+                         for op in self.metrics 
+                         if op in self.operation_counts 
+                         and op not in self.workflow_operations}
         
-        if not avg_times:
+        if not filtered_times:
             return []
         
-        avg_time = sum(avg_times.values()) / len(avg_times)
-        bottlenecks = [op for op, duration in avg_times.items() if duration > avg_time * 1.5]
-        return bottlenecks
+        # 找出耗时最长的操作作为瓶颈
+        sorted_operations = sorted(filtered_times.items(), key=lambda x: x[1], reverse=True)
+        
+        # 取前面占用时间较多的操作作为瓶颈
+        if len(sorted_operations) >= 2:
+            return [op for op, _ in sorted_operations[:2]]
+        elif sorted_operations:
+            return [sorted_operations[0][0]]
+        else:
+            return []
 
 
 class StateManager:
@@ -514,11 +561,15 @@ class IntelligentLiteratureSystem:
     def _init_data_processor_safe(self) -> bool:
         """线程安全的数据处理器初始化"""
         try:
+            self.performance_monitor.start_timing("数据处理器初始化", is_parallel=True)
             self.data_processor = JournalDataProcessor()
+            self.performance_monitor.end_timing("数据处理器初始化")
             return True
         except FileNotFoundError:
+            self.performance_monitor.end_timing("数据处理器初始化")
             return True  # 静默处理文件未找到错误  # 非关键组件，允许失败
         except Exception as e:
+            self.performance_monitor.end_timing("数据处理器初始化")
             raise SystemError("数据处理器", "初始化失败", str(e))
     
     def _init_intent_analyzer(self) -> bool:
@@ -660,14 +711,18 @@ class IntelligentLiteratureSystem:
     def _init_pubmed_searcher_safe(self) -> bool:
         """线程安全的PubMed检索器初始化"""
         try:
+            self.performance_monitor.start_timing("PubMed检索器初始化", is_parallel=True)
             self.pubmed_searcher = PubMedSearcher()
+            self.performance_monitor.end_timing("PubMed检索器初始化")
             return True
         except Exception as e:
+            self.performance_monitor.end_timing("PubMed检索器初始化")
             raise SystemError("PubMed检索器", "初始化失败", str(e))
     
     def _init_literature_filter_safe(self) -> bool:
         """线程安全的文献筛选器初始化"""
         try:
+            self.performance_monitor.start_timing("文献筛选器初始化", is_parallel=True)
             # 使用线程来限制初始化时间，避免阻塞
             import threading
             import time
@@ -707,29 +762,37 @@ class IntelligentLiteratureSystem:
                     'memory_usage_mb': 0,
                     'errors': 0
                 }
+                self.performance_monitor.end_timing("文献筛选器初始化")
                 return True
             elif result['success']:
                 self.literature_filter = result['filter']
+                self.performance_monitor.end_timing("文献筛选器初始化")
                 return True
             else:
+                self.performance_monitor.end_timing("文献筛选器初始化")
                 raise SystemError("文献筛选器", "初始化失败", result['error'])
         except Exception as e:
+            self.performance_monitor.end_timing("文献筛选器初始化")
             raise SystemError("文献筛选器", "初始化失败", str(e))
     
     def _init_outline_generator_safe(self) -> bool:
         """线程安全的大纲生成器初始化"""
         try:
+            self.performance_monitor.start_timing("大纲生成器初始化", is_parallel=True)
             self.outline_generator = ReviewOutlineGenerator(self.ai_config_name)
+            self.performance_monitor.end_timing("大纲生成器初始化")
             return True
         except Exception as e:
             print(f"警告: 大纲生成器初始化失败，将使用简单大纲生成: {e}")
             # 创建一个简单的大纲生成器作为备选
             self.outline_generator = SimpleOutlineGenerator()
+            self.performance_monitor.end_timing("大纲生成器初始化")
             return True
     
     def _init_review_generator_safe(self) -> bool:
         """线程安全的文章生成器初始化"""
         try:
+            self.performance_monitor.start_timing("文章生成器初始化", is_parallel=True)
             # 使用线程来限制初始化时间，避免阻塞
             import threading
             import time
@@ -755,15 +818,19 @@ class IntelligentLiteratureSystem:
             
             if init_thread.is_alive():
                 # 超时，跳过此组件
+                self.performance_monitor.end_timing("文章生成器初始化")
                 return False
             elif result['success']:
                 self.review_generator = result['generator']
+                self.performance_monitor.end_timing("文章生成器初始化")
                 return True
             else:
                 # 初始化失败，静默处理
+                self.performance_monitor.end_timing("文章生成器初始化")
                 return False
         except Exception as e:
             # 静默处理异常，不打印错误信息
+            self.performance_monitor.end_timing("文章生成器初始化")
             return False
     
     def _display_model_configuration(self):
@@ -1194,13 +1261,16 @@ class IntelligentLiteratureSystem:
                 review_content = cached_article
                 success = True
             else:
-                success = self.review_generator.generate_from_files(
+                md_path, docx_path = self.review_generator.generate_from_files(
                     outline_file=temp_outline_file,
                     literature_file=temp_literature_file,
                     title=review_title,
                     output_filename=output_file,
-                    user_input=user_query
+                    user_input=user_query,
+                    export_docx=True  # 默认导出DOCX格式
                 )
+                
+                success = bool(md_path)  # 如果MD文件生成成功就算成功
                 
                 if not success:
                     print("综述文章生成失败，尝试备用方法...")
@@ -1268,6 +1338,7 @@ class IntelligentLiteratureSystem:
             "filtered_count": len(self.filtered_results),
             "outline_file": getattr(self, 'final_outline_file', None),
             "review_file": os.path.join("综述文章", output_file) if 'output_file' in locals() else None,
+            "docx_file": docx_path if 'docx_path' in locals() and docx_path else None,
             "processing_time": workflow_time,
             "performance_report": performance_report
         }
@@ -1568,23 +1639,53 @@ class IntelligentLiteratureSystem:
         return None
     
     def _print_performance_summary(self, performance_report: Dict):
-        """打印性能摘要"""
+        """打印优化的性能摘要"""
         print("\n性能分析报告:")
-        print("-" * 40)
-        print(f"总处理时间: {performance_report['total_time']:.2f}秒")
+        print("-" * 50)
         
-        print("\n各环节耗时:")
-        for operation, duration in performance_report['operation_times'].items():
-            count = performance_report['operation_counts'].get(operation, 1)
-            avg_time = performance_report['average_times'].get(operation, duration)
-            print(f"  {operation}: {duration:.2f}秒 (平均: {avg_time:.2f}秒 x {count}次)")
+        # 显示实际总时间（墙钟时间）
+        actual_time = performance_report.get('actual_total_time', 0)
+        print(f"实际总处理时间: {actual_time:.2f}秒")
         
+        # 显示分类统计
+        serial_time = performance_report.get('serial_total_time', 0)
+        parallel_time = performance_report.get('parallel_total_time', 0)
+        
+        print(f"串行操作总时间: {serial_time:.2f}秒")
+        print(f"并行操作最大时间: {parallel_time:.2f}秒")
+        
+        print("\n各环节详细耗时:")
+        categories = performance_report.get('operation_categories', {})
+        
+        # 按类别显示操作
+        for category, operations in categories.items():
+            if not operations:
+                continue
+                
+            category_names = {
+                'workflow': '工作流程',
+                'serial': '串行操作', 
+                'parallel': '并行操作',
+                'component': '组件初始化'
+            }
+            
+            print(f"\n  {category_names.get(category, category)}:")
+            for operation in operations:
+                duration = performance_report['operation_times'].get(operation, 0)
+                count = performance_report['operation_counts'].get(operation, 1)
+                avg_time = performance_report['average_times'].get(operation, duration)
+                
+                # 标记并行操作
+                parallel_mark = " [并行]" if category == 'parallel' else ""
+                print(f"    {operation}: {duration:.2f}秒 (平均: {avg_time:.2f}秒 x {count}次){parallel_mark}")
+        
+        # 性能瓶颈分析
         bottlenecks = performance_report.get('bottlenecks', [])
         if bottlenecks:
             print(f"\n性能瓶颈: {', '.join(bottlenecks)}")
             print("建议: 优化上述环节以提升整体性能")
         
-        print("-" * 40)
+        print("-" * 50)
     
     def _get_processing_time(self) -> str:
         """获取处理时间（简化版本）"""
@@ -1839,6 +1940,13 @@ class IntelligentLiteratureSystem:
         print(f"   检索到文献: {result['total_found']} 篇")
         print(f"   筛选后文献: {result['filtered_count']} 篇")
         print(f"   生成文件: {result['review_file']}")
+        
+        # 显示DOCX文件信息
+        if result.get('docx_file'):
+            print(f"   DOCX版本: {result['docx_file']}")
+        else:
+            print(f"   DOCX版本: 未导出 (需要安装Pandoc)")
+            
         print(f"   处理时间: {result['processing_time']:.2f}秒")
 
 

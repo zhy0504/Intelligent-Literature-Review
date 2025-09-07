@@ -4,11 +4,14 @@
 医学综述文章生成器 - 简化版本
 基于大纲和文献检索结果生成专业的中文医学综述文章
 采用旧版本的简单直接架构，移除复杂的缓存和并行处理
+支持Pandoc导出DOCX格式
 """
 
 import json
 import os
 import re
+import subprocess
+import shutil
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
@@ -141,6 +144,116 @@ class Literature:
         return citation
 
 
+class PandocExporter:
+    """Pandoc DOCX导出器 - 支持便携版"""
+    
+    def __init__(self):
+        self.pandoc_path = self._find_pandoc_executable()
+        self.pandoc_available = bool(self.pandoc_path)
+        if self.pandoc_available:
+            print(f"Pandoc已找到: {self.pandoc_path}")
+        else:
+            print("未找到Pandoc，请安装后使用DOCX导出功能")
+            print("安装方法: https://pandoc.org/installing.html")
+    
+    def _find_pandoc_executable(self) -> Optional[str]:
+        """查找pandoc可执行文件，支持便携版和系统安装"""
+        import platform
+        
+        # 1. 优先查找项目便携版
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        system = platform.system().lower()
+        
+        # 便携版路径映射
+        portable_paths = {
+            'windows': 'tools/pandoc/windows/pandoc.exe',
+            'linux': 'tools/pandoc/linux/pandoc',
+            'darwin': 'tools/pandoc/macos/pandoc'  # macOS
+        }
+        
+        if system in portable_paths:
+            portable_path = os.path.join(project_root, portable_paths[system])
+            if os.path.exists(portable_path):
+                # 测试便携版Pandoc是否工作
+                try:
+                    result = subprocess.run([portable_path, '--version'], 
+                                          capture_output=True, text=True, timeout=5)
+                    if result.returncode == 0:
+                        print(f"使用便携版Pandoc: {portable_path}")
+                        return portable_path
+                except Exception:
+                    pass
+        
+        # 2. 查找系统PATH中的pandoc
+        pandoc_cmd = 'pandoc.exe' if system == 'windows' else 'pandoc'
+        
+        try:
+            result = subprocess.run([pandoc_cmd, '--version'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                # 使用shutil.which获取完整路径
+                full_path = shutil.which(pandoc_cmd)
+                if full_path:
+                    print(f"使用系统Pandoc: {full_path}")
+                    return pandoc_cmd  # 返回命令名，让系统自动解析路径
+                
+        except FileNotFoundError:
+            pass
+        
+        return None
+    
+    def convert_to_docx(self, md_file: str, output_file: str = None, 
+                       custom_template: str = None, style: str = "academic") -> str:
+        """
+        使用pandoc将Markdown文件转换为DOCX
+        
+        Args:
+            md_file: 输入的Markdown文件路径
+            output_file: 输出的DOCX文件路径（可选）
+            custom_template: 自定义Word模板路径（可选）
+            style: 预设样式（academic/simple）
+            
+        Returns:
+            str: 生成的DOCX文件路径
+        """
+        if not self.pandoc_available:
+            raise RuntimeError("Pandoc未安装或不可用，无法导出DOCX")
+        
+        if not os.path.exists(md_file):
+            raise FileNotFoundError(f"Markdown文件不存在: {md_file}")
+        
+        # 生成输出文件名
+        if not output_file:
+            output_file = md_file.replace('.md', '.docx')
+        
+        # 构建pandoc命令 - 使用动态路径
+        cmd = [self.pandoc_path, md_file, '-o', output_file]
+        
+        # 添加样式参数
+        if style == "academic":
+            # 学术风格：更紧凑的行距，标准字体
+            cmd.extend(['--variable', 'fontfamily=Times'])
+        
+        # 使用自定义模板
+        if custom_template and os.path.exists(custom_template):
+            cmd.extend(['--reference-doc', custom_template])
+        
+        try:
+            # 执行转换
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            print(f"成功导出DOCX: {output_file}")
+            return output_file
+            
+        except subprocess.CalledProcessError as e:
+            error_msg = f"Pandoc转换失败: {e.stderr}"
+            print(error_msg)
+            raise RuntimeError(error_msg)
+    
+    def is_available(self) -> bool:
+        """检查Pandoc是否可用"""
+        return self.pandoc_available
+
+
 class MedicalReviewGenerator:
     """医学综述文章生成器 - 简化版本"""
     
@@ -165,6 +278,9 @@ class MedicalReviewGenerator:
         
         # 初始化提示词管理器
         self.prompts_manager = PromptsManager()
+        
+        # 初始化Pandoc导出器
+        self.pandoc_exporter = PandocExporter()
         
         # 确保输出目录存在
         os.makedirs(self.output_dir, exist_ok=True)
@@ -769,15 +885,14 @@ class MedicalReviewGenerator:
         return '\n'.join(references)
     
     def _clean_ai_intro(self, content: str) -> str:
-        """清理AI生成内容前面的引导语"""
+        """清理AI生成内容前面的引导语和思考过程"""
         if not content:
             return content
         
         lines = content.split('\n')
         cleaned_lines = []
-        start_found = False
         
-        # 定义可能的引导语模式
+        # AI思考过程模式
         intro_patterns = [
             '好的，作为',
             '作为一名资深的医学综述撰写专家',
@@ -790,58 +905,87 @@ class MedicalReviewGenerator:
             '以下是',
             '现在我为您',
             '基于以上',
-            '根据以上'
+            '根据以上',
+            # 英文AI思考过程模式
+            "I'm now populating",
+            "I'm beginning with",
+            "I'm now planning",
+            "I'm now fleshing out",
+            "I'm working to create",
+            "I'm paying close attention",
+            "I'm breaking down",
+            "I'm focusing on",
+            "I'm now ready to",
+            "**Refining Section",
+            "**Detailing Section",
+            "**Organizing the",
+            "**Developing Section",
+            "**Implementing the",
+            "I'm using data from",
+            "I'll make sure to",
+            "I'll explore how",
+            "I plan to integrate",
+            "I'm now defining"
         ]
         
+        # 第一遍：移除明显的AI思考内容
         for line in lines:
-            original_line = line
-            line = line.strip()
+            line_stripped = line.strip()
             
-            # 如果还没找到开始位置，检查是否是引导语
-            if not start_found:
-                # 检查是否是文章的开始标记（标题或第一个章节）
-                if (line.startswith('#') and not any(pattern in line for pattern in intro_patterns)):
-                    start_found = True
-                    cleaned_lines.append(original_line)
-                # 检查是否是引导语
-                elif any(pattern in line for pattern in intro_patterns):
-                    # 跳过引导语行
-                    continue
-                # 如果不是空行且不是引导语，可能是内容的一部分
-                elif line and not any(pattern in line for pattern in intro_patterns):
-                    # 检查是否包含实际内容标记
-                    if ('##' in line or '　　' in line or line.startswith('　　') or 
-                        '摘要' in line or '引言' in line or '结论' in line):
-                        start_found = True
-                        cleaned_lines.append(original_line)
-                # 空行也保留，但不算作开始
-                elif not line:
-                    if start_found:
-                        cleaned_lines.append(original_line)
-            else:
-                # 已经找到开始位置，保留所有后续内容
-                cleaned_lines.append(original_line)
+            # 跳过包含AI思考模式的行
+            if any(pattern in line for pattern in intro_patterns):
+                continue
+            
+            # 保留其他内容
+            cleaned_lines.append(line)
         
-        # 重新组合内容
-        cleaned_content = '\n'.join(cleaned_lines).strip()
+        # 第二遍：查找真正的内容开始点
+        final_lines = []
+        content_started = False
+        
+        for line in cleaned_lines:
+            line_stripped = line.strip()
+            
+            if not content_started:
+                # 检查是否是真正的内容开始
+                if (line_stripped.startswith('#') or 
+                    line_stripped.startswith('##') or
+                    ('　　' in line and len(line_stripped) > 10) or
+                    ('引言' in line_stripped) or
+                    ('摘要' in line_stripped) or
+                    ('结论' in line_stripped) or
+                    (line_stripped and '结核病' in line_stripped and len(line_stripped) > 20)):
+                    content_started = True
+                    final_lines.append(line)
+                elif not line_stripped:  # 保留空行
+                    final_lines.append(line)
+            else:
+                # 内容已经开始，保留所有内容
+                final_lines.append(line)
+        
+        # 重新组合内容并清理开头的空行
+        cleaned_content = '\n'.join(final_lines).strip()
         
         # 如果没有找到有效内容，返回原始内容
-        if not cleaned_content:
+        if not cleaned_content or len(cleaned_content) < 50:
+            print("警告: 清理后内容过短，返回原始内容")
             return content
         
         return cleaned_content
     
-    def save_article(self, content: str, filename: str = None, user_input: str = None) -> str:
+    def save_article(self, content: str, filename: str = None, user_input: str = None, 
+                     export_docx: bool = False) -> tuple:
         """
-        保存文章到文件
+        保存文章到文件，支持可选的DOCX导出
         
         Args:
             content: 文章内容
             filename: 文件名（可选）
             user_input: 用户输入内容（可选）
+            export_docx: 是否同时导出DOCX格式
             
         Returns:
-            str: 保存的文件路径
+            tuple: (md_file_path, docx_file_path) 如果不导出docx，第二个值为None
         """
         if not filename:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -858,18 +1002,36 @@ class MedicalReviewGenerator:
         filepath = os.path.join(self.output_dir, filename)
         
         try:
+            # 1. 保存Markdown文件
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(content)
             
             print(f"文章已保存到: {filepath}")
-            return filepath
+            
+            # 2. 可选导出DOCX格式
+            docx_path = None
+            if export_docx and self.pandoc_exporter.is_available():
+                try:
+                    docx_path = self.pandoc_exporter.convert_to_docx(
+                        filepath, 
+                        style="academic"
+                    )
+                    print(f"DOCX版本已导出: {docx_path}")
+                except Exception as docx_error:
+                    print(f"DOCX导出失败: {docx_error}")
+                    # 即使DOCX导出失败，MD文件仍然成功保存
+            elif export_docx and not self.pandoc_exporter.is_available():
+                print("Pandoc不可用，跳过DOCX导出")
+            
+            return filepath, docx_path
             
         except Exception as e:
             print(f"保存文章失败: {e}")
-            return ""
+            return "", None
     
     def generate_from_files(self, outline_file: str, literature_file: str, 
-                          title: str = None, output_filename: str = None, user_input: str = None) -> str:
+                          title: str = None, output_filename: str = None, user_input: str = None, 
+                          export_docx: bool = False) -> tuple:
         """
         从文件生成综述文章
         
@@ -879,19 +1041,20 @@ class MedicalReviewGenerator:
             title: 文章标题
             output_filename: 输出文件名
             user_input: 用户输入内容
+            export_docx: 是否导出DOCX格式
             
         Returns:
-            str: 生成的文件路径
+            tuple: (md_file_path, docx_file_path) 如果不导出docx，第二个值为None
         """
         # 生成文章
         article_content = self.generate_complete_review_article(outline_file, literature_file, title)
         
         if not article_content:
             print("文章生成失败")
-            return ""
+            return "", None
         
-        # 保存文章
-        output_path = self.save_article(article_content, output_filename, user_input)
+        # 保存文章（支持DOCX导出）
+        md_path, docx_path = self.save_article(article_content, output_filename, user_input, export_docx)
         
         # 显示统计信息
         word_count = len(article_content.replace(' ', '').replace('\n', ''))
@@ -899,7 +1062,7 @@ class MedicalReviewGenerator:
         print(f"   总字数: {word_count:,}")
         print(f"   文件大小: {len(article_content.encode('utf-8')):,} 字节")
         
-        return output_path
+        return md_path, docx_path
 
 
 def main():
