@@ -96,8 +96,8 @@ def extract_tar(tar_path, target_dir):
 
 def setup_pandoc_portable():
     """设置便携版Pandoc"""
-    # 项目根目录
-    project_root = Path(__file__).parent
+    # 项目根目录 - 修改为实际项目根目录
+    project_root = Path(__file__).parent.parent
     
     # 获取系统信息
     os_name, arch = get_system_info()
@@ -149,7 +149,7 @@ def setup_pandoc_portable():
                         if os_name != 'windows':
                             dest_path.chmod(0o755)
                         
-                        print(f"✅ Pandoc便携版安装完成: {dest_path}")
+                        print(f"Pandoc便携版安装完成: {dest_path}")
                         pandoc_found = True
                         break
                 
@@ -157,7 +157,7 @@ def setup_pandoc_portable():
                     break
             
             if not pandoc_found:
-                print("❌ 解压文件中未找到pandoc可执行文件")
+                print("解压文件中未找到pandoc可执行文件")
                 return None
         
         # 清理临时文件
@@ -180,7 +180,7 @@ def main():
     pandoc_path = setup_pandoc_portable()
     
     if pandoc_path:
-        print("\n🎉 安装成功!")
+        print("\n安装成功!")
         print(f"Pandoc位置: {pandoc_path}")
         print("\n现在可以运行智能文献系统并自动导出DOCX格式!")
         
@@ -192,14 +192,14 @@ def main():
                                   capture_output=True, text=True, timeout=10)
             if result.returncode == 0:
                 version_line = result.stdout.split('\n')[0]
-                print(f"✅ {version_line}")
+                print(f"测试成功: {version_line}")
             else:
-                print("❌ Pandoc测试失败")
+                print("Pandoc测试失败")
         except Exception as e:
-            print(f"❌ 测试失败: {e}")
+            print(f"测试失败: {e}")
             
     else:
-        print("\n❌ 安装失败")
+        print("\n安装失败")
         print("请手动安装Pandoc: https://pandoc.org/installing.html")
 
 if __name__ == "__main__":
