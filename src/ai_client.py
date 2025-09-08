@@ -1038,15 +1038,21 @@ class GeminiAdapter(BaseAIAdapter):
                                 if candidates:
                                     content = candidates[0].get('content', {})
                                     parts = content.get('parts', [])
-                                    if parts and 'text' in parts[0]:
-                                        text = parts[0]['text']
-                                        if text:  # 确保内容不为空
-                                            # 确保text是字符串类型
-                                            if not isinstance(text, str):
-                                                text = str(text)
-                                            content_parts.append(text)
-                                            # 使用安全打印函数实时输出
-                                            safe_print(text, end='', flush=True)
+                                    
+                                    # 处理Gemini 2.5的多parts格式，跳过thought部分
+                                    for part in parts:
+                                        # 跳过思考过程部分
+                                        if part.get('thought') is True:
+                                            continue
+                                        if 'text' in part:
+                                            text = part['text']
+                                            if text:  # 确保内容不为空
+                                                # 确保text是字符串类型
+                                                if not isinstance(text, str):
+                                                    text = str(text)
+                                                content_parts.append(text)
+                                                # 使用安全打印函数实时输出
+                                                safe_print(text, end='', flush=True)
                             
                             except json.JSONDecodeError as e:
                                 continue
@@ -1541,14 +1547,36 @@ class AIClient:
                 if candidates:
                     content = candidates[0].get('content', {})
                     parts = content.get('parts', [])
+                    
+                    # Gemini 2.5可能返回多个parts，包括thought和actual response
+                    # 优先查找非thought的text部分（实际回复）
+                    actual_text = ""
+                    for part in parts:
+                        # 跳过思考过程部分
+                        if part.get('thought') is True:
+                            continue
+                        if 'text' in part:
+                            text = part['text']
+                            if isinstance(text, list):
+                                text = ' '.join(str(item) for item in text)
+                            elif not isinstance(text, str):
+                                text = str(text)
+                            actual_text += text
+                    
+                    # 如果找到了实际回复，返回它
+                    if actual_text.strip():
+                        return actual_text.strip()
+                    
+                    # 如果没有找到非thought的text，使用第一个包含text的part作为后备
                     if parts:
-                        text = parts[0].get('text', '')
-                        # 确保text是字符串类型
-                        if isinstance(text, list):
-                            text = ' '.join(str(item) for item in text)
-                        elif not isinstance(text, str):
-                            text = str(text)
-                        return text.strip()
+                        for part in parts:
+                            if 'text' in part:
+                                text = part['text']
+                                if isinstance(text, list):
+                                    text = ' '.join(str(item) for item in text)
+                                elif not isinstance(text, str):
+                                    text = str(text)
+                                return text.strip()
             
         except (KeyError, IndexError, TypeError) as e:
             return f"解析响应失败: {e}\n\n原始响应:\n{json.dumps(response, indent=2, ensure_ascii=False)}"

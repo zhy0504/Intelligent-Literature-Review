@@ -161,10 +161,10 @@ def install_pandoc_portable():
         pandoc_path = setup_pandoc_portable.setup_pandoc_portable()
         
         if pandoc_path:
-            print("✅ Pandoc便携版安装成功!")
+            print("[SUCCESS] Pandoc便携版安装成功!")
             return True
         else:
-            print("❌ Pandoc便携版安装失败")
+            print("[ERROR] Pandoc便携版安装失败")
             return False
             
     except Exception as e:
@@ -297,9 +297,9 @@ def start_literature_system():
     # 检查Pandoc状态并提示
     pandoc_status = check_pandoc_status()
     if pandoc_status['status'] != '未安装':
-        print(f"✅ Pandoc状态: {pandoc_status['status']} - 支持DOCX导出")
+        print(f"[OK] Pandoc状态: {pandoc_status['status']} - 支持DOCX导出")
     else:
-        print("⚠️  Pandoc未安装 - 仅支持Markdown格式")
+        print("[WARNING] Pandoc未安装 - 仅支持Markdown格式")
         print("   运行 'python src/setup_pandoc_portable.py' 安装便携版支持DOCX导出")
     print()
     
@@ -340,134 +340,22 @@ def show_quick_menu():
     print("智能文献系统快速启动")
     print("=" * 50)
     print("1. 系统状态检查")
-    print("2. 快速设置（含完整状态检查 + 自动配置）")
-    print("3. 启动文献系统")
-    print("4. 高级管理")
-    print("5. 帮助文档")
+    print("2. 启动文献系统")
+    print("3. 高级管理")
+    print("4. 帮助文档")
     print("0. 退出")
     print("=" * 50)
+    print("[INFO] 系统启动时已自动检测并修复常见问题")
 
 
 def quick_setup(cli):
-    """快速设置"""
-    print("\n快速设置向导")
-    print("-" * 30)
+    """快速设置 - 重定向到系统状态检查和启动逻辑"""
+    print("\n[INFO] 快速设置功能已整合到系统启动检测中")
+    print("正在执行系统状态检查...")
+    cli.show_system_status()
     
-    # 首先显示完整的系统状态检查（但不等待用户输入）
-    print("正在进行系统状态检查...")
-    print("=" * 50)
-    
-    # 调用系统状态检查但不等待输入
-    show_system_status_non_interactive(cli)
-    
-    # 根据检查结果询问是否继续设置
-    print("\n" + "=" * 50)
-    print("基于上述检查结果，开始快速设置")
-    print("=" * 50)
-    
-    # 检查Python版本
-    version_ok, version_msg = cli.check_python_version()
-    print(f"\nPython版本: {version_msg}")
-    if not version_ok:
-        print("请升级Python版本")
-        return
-    
-    # 检查虚拟环境
-    venv_status = cli.detect_virtual_environment()
-    print(f"虚拟环境: {venv_status['status']}")
-    
-    if not venv_status['venv_exists']:
-        print("正在创建虚拟环境...")
-        if cli.create_virtual_environment():
-            print("虚拟环境创建成功")
-        else:
-            print("虚拟环境创建失败")
-            return
-    
-    # 检查依赖
-    req_status = cli.get_requirements_status()
-    if req_status['missing_packages']:
-        print("正在安装依赖包...")
-        cli.install_dependencies()
-    
-    # 重置AI配置
-    ai_config = cli.check_ai_config()
-    if ai_config['valid_services'] == 0:
-        print("正在重置AI配置...")
-        cli.setup_ai_config()
-    
-    # 设置提示词配置
-    prompts_config = cli.check_prompts_config()
-    if not prompts_config['file_exists']:
-        print("正在重置提示词配置...")
-        cli.setup_prompts_config()
-    
-    # 检查Pandoc状态
-    pandoc_status = check_pandoc_status()
-    print(f"\nPandoc状态: {pandoc_status['status']}")
-    if pandoc_status['status'] == '未安装':
-        response = input("是否安装Pandoc便携版以支持DOCX导出? (y/n): ").strip().lower()
-        if response in ['y', 'yes', '是']:
-            if install_pandoc_portable():
-                print("Pandoc安装成功，现在支持DOCX导出功能")
-            else:
-                print("Pandoc安装失败，仍可使用Markdown格式")
-    
-    print("\n快速设置完成!")
-    
-    # 检查数据文件状态并给出提示
-    print("\n" + "=" * 50)
-    print("数据文件状态检查")
-    print("=" * 50)
-    
-    try:
-        from pathlib import Path
-        data_dir = Path("data")
-        processed_files = ["processed_zky_data.csv", "processed_jcr_data.csv"]
-        raw_files = ["zky.csv", "jcr.csv"]
-        
-        missing_processed = []
-        missing_raw = []
-        
-        # 检查预处理文件
-        for file_name in processed_files:
-            if not (data_dir / file_name).exists():
-                missing_processed.append(file_name)
-        
-        # 检查原始文件
-        for file_name in raw_files:
-            if not (data_dir / file_name).exists():
-                missing_raw.append(file_name)
-        
-        if not missing_processed:
-            print("[OK] 预处理数据文件完整，系统可直接使用")
-        elif not missing_raw:
-            print("[INFO] 预处理文件缺失，但原始数据文件存在")
-            print("[INFO] 正在生成预处理文件...")
-            
-            # 在虚拟环境中生成预处理文件
-            if generate_processed_data():
-                print("[SUCCESS] 预处理文件生成完成！")
-                print("[INFO] 系统现在完全就绪，可以直接使用")
-            else:
-                print("[ERROR] 预处理文件生成失败")
-                print("[INFO] 系统首次运行时会自动重试生成预处理文件")
-        else:
-            print("[WARNING] 缺少数据文件！")
-            print(f"[MISSING] 需要的文件: {', '.join(raw_files)}")
-            print("[SOLUTION] 请将 zky.csv 和 jcr.csv 文件放入 data/ 目录")
-            print("           这些文件包含中科院分区和JCR分区数据，是系统筛选期刊的重要依据")
-    
-    except Exception as e:
-        print(f"[ERROR] 检查数据文件时出错: {e}")
-    
-    # 根据AI配置状态显示相应的提示
-    if ai_config['valid_services'] > 0:
-        print(f"\n[OK] AI配置已完成，已有 {ai_config['valid_services']} 个有效服务")
-        if ai_config['invalid_services'] > 0:
-            print(f"[WARN] 有 {ai_config['invalid_services']} 个服务配置不完整，可编辑 ai_config.yaml 优化")
-    else:
-        print("\n[ERROR] 请编辑AI配置文件 ai_config.yaml，添加您的API密钥")
+    print("\n[INFO] 大部分设置问题会在系统启动时自动修复")
+    print("如需手动处理特殊情况，请使用 'python start.py manage' 进入高级管理")
 
 
 def show_help():
@@ -480,18 +368,18 @@ def show_help():
 智能文献系统使用指南:
 
 1. 首次使用
-   - 运行 'python start.py quick_setup' 进行快速设置
+   - 运行 'python start.py' 系统会自动检测并修复常见问题
    - 编辑 ai_config.yaml 添加您的API密钥
-   - 运行 'python start.py check' 检查系统状态
+   - 运行 'python start.py' 选择1检查系统状态
 
 2. 日常使用
-   - 运行 'python start.py start' 启动系统
+   - 运行 'python start.py' 选择2启动系统
+   - 运行 'python start.py start' 直接启动系统
    - 运行 'python start.py manage' 进入高级管理模式
-   - 运行 'python start.py status' 查看系统状态
 
 3. 常用命令
-   - python start.py                    # 显示快速菜单
-   - python start.py quick_setup        # 快速设置
+   - python start.py                    # 显示快速菜单（自动检测问题）
+   - python start.py quick_setup        # 系统状态检查（兼容旧命令）
    - python start.py start              # 启动系统
    - python start.py manage             # 高级管理
    - python start.py status             # 系统状态
@@ -596,29 +484,101 @@ def main():
         req_status = cli.get_requirements_status()
         pandoc_status = check_pandoc_status()
         
-        # 显示关键状态
+        # 自动修复系统问题
         issues = []
+        auto_fixed = []
+        
+        print("正在自动检测并修复系统问题...")
+        
+        # 1. Python版本检查（无法自动修复）
         if not version_ok:
             issues.append("Python版本过低")
+        
+        # 2. 自动创建虚拟环境
         if not venv_status['venv_exists']:
-            issues.append("虚拟环境未创建")
+            print("检测到虚拟环境不存在，正在自动创建...")
+            if cli.create_virtual_environment():
+                auto_fixed.append("虚拟环境已创建")
+                # 重新检查虚拟环境状态
+                venv_status = cli.detect_virtual_environment()
+                # 重新检查依赖状态（因为虚拟环境变了）
+                req_status = cli.get_requirements_status()
+            else:
+                issues.append("虚拟环境创建失败")
+        
+        # 3. 自动安装依赖包
         if req_status['missing_packages']:
-            issues.append(f"缺少{len(req_status['missing_packages'])}个依赖包")
+            print(f"检测到{len(req_status['missing_packages'])}个依赖包缺失，正在自动安装...")
+            if cli.install_dependencies():
+                auto_fixed.append(f"{len(req_status['missing_packages'])}个依赖包已安装")
+            else:
+                issues.append(f"缺少{len(req_status['missing_packages'])}个依赖包")
+        
+        # 4. 自动安装Pandoc
         if pandoc_status['status'] == '未安装':
-            issues.append("Pandoc未安装(无法导出DOCX)")
+            print("检测到Pandoc未安装，正在自动安装便携版...")
+            if install_pandoc_portable():
+                auto_fixed.append("Pandoc便携版已安装")
+                # 重新检查Pandoc状态
+                pandoc_status = check_pandoc_status()
+            else:
+                issues.append("Pandoc未安装(无法导出DOCX)")
+        
+        # 5. 自动设置提示词配置
+        prompts_config = cli.check_prompts_config()
+        if not prompts_config['file_exists']:
+            print("检测到提示词配置缺失，正在自动生成...")
+            if cli.setup_prompts_config():
+                auto_fixed.append("提示词配置已生成")
+            else:
+                issues.append("提示词配置生成失败")
+        
+        # 6. 检查AI配置（需要用户手动设置）
+        ai_config = cli.check_ai_config()
+        if ai_config['valid_services'] == 0:
+            issues.append("AI配置需要手动设置API密钥")
+        
+        # 7. 自动处理数据文件
+        try:
+            from pathlib import Path
+            data_dir = Path("data")
+            processed_files = ["processed_zky_data.csv", "processed_jcr_data.csv"]
+            raw_files = ["zky.csv", "jcr.csv"]
+            
+            missing_processed = [f for f in processed_files if not (data_dir / f).exists()]
+            missing_raw = [f for f in raw_files if not (data_dir / f).exists()]
+            
+            if missing_processed and not missing_raw:
+                print("检测到预处理文件缺失但原始数据存在，正在自动生成...")
+                if generate_processed_data():
+                    auto_fixed.append("数据预处理文件已生成")
+                else:
+                    issues.append("数据预处理文件生成失败")
+            elif missing_raw:
+                issues.append(f"缺少数据文件: {', '.join(raw_files)}")
+        except Exception as e:
+            issues.append(f"数据文件检查失败: {e}")
+        
+        # 显示结果
+        if auto_fixed:
+            print("\n[SUCCESS] 自动修复完成:")
+            for fix in auto_fixed:
+                print(f"   [OK] {fix}")
         
         if issues:
-            print("警告: 发现以下问题:")
+            print("\n[WARNING] 仍需注意的问题:")
             for issue in issues:
                 print(f"   - {issue}")
-            print("建议运行 '2. 快速设置' 自动修复")
+            # 只有在存在非AI配置问题时才推荐快速设置
+            non_ai_issues = [i for i in issues if "AI配置" not in i]
+            if non_ai_issues:
+                print("建议运行 '2. 完整设置向导' 处理其他问题")
+            if "AI配置需要手动设置API密钥" in issues:
+                print("请编辑 ai_config.yaml 添加您的API密钥")
         else:
-            print("系统环境检查正常")
+            print("\n[SUCCESS] 系统环境检查正常，所有问题已自动修复")
         
-        if pandoc_status['status'] == '未安装':
-            print(f"提示: 安装Pandoc支持DOCX导出: python src/setup_pandoc_portable.py")
-        else:
-            print(f"Pandoc: {pandoc_status['status']}")
+        print(f"\nPandoc状态: {pandoc_status['status']}")
         
         # 显示快速菜单
         while True:
@@ -629,18 +589,15 @@ def main():
                 cli.show_system_status()
             
             elif choice == "2":
-                quick_setup(cli)
-            
-            elif choice == "3":
                 if start_literature_system():
                     print("系统启动成功")
                 else:
                     print("系统启动失败")
             
-            elif choice == "4":
+            elif choice == "3":
                 cli.run()
             
-            elif choice == "5":
+            elif choice == "4":
                 show_help()
             
             elif choice == "0":
