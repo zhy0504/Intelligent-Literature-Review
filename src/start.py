@@ -125,9 +125,36 @@ def print_status(message, status="INFO", show_time: bool = True):
 
 def print_section_header(title: str):
     """打印节标题"""
-    print(f"\n{'='*60}")
-    print(f"{title}")
-    print(f"{'='*60}")
+    print(f"\n{'='*70}")
+    print(f"    {title}")
+    print(f"{'='*70}")
+
+
+def print_startup_banner():
+    """打印美化的启动横幅（纯ASCII字符，Windows兼容）"""
+    print()
+    print("="*75)
+    print()
+    print("        +-+-+-+-+-+-+-+-+-+-+   +-+-+-+-+-+-+-+-+-+")
+    print("        |I|N|T|E|L|L|I|G|E|N|T| |L|I|T|E|R|A|T|U|R|E|")
+    print("        +-+-+-+-+-+-+-+-+-+-+   +-+-+-+-+-+-+-+-+-+")
+    print("                      +-+-+-+-+-+-+")
+    print("                      |R|E|V|I|E|W|")
+    print("                      +-+-+-+-+-+-+")
+    print()
+    print("                #################################")
+    print("                #                               #")
+    print("                #    LITERATURE REVIEW SYSTEM  #")
+    print("                #            v2.0               #")
+    print("                #                               #")
+    print("                #   AI-Powered Research Tool    #")
+    print("                #                               #")
+    print("                #################################")
+    print()
+    print("      Features: PubMed Search | Smart Analysis | Review Generation")
+    print("      Platform: Cross-Platform | Progress Tracking | Fast Dependencies")
+    print()
+    print("="*75)
 
 
 def check_python_version(progress_tracker: ProgressTracker = None) -> bool:
@@ -234,37 +261,109 @@ def check_dependencies(progress_tracker: ProgressTracker = None, system_cache: S
     try:
         result = subprocess.run([
             str(venv_python), "-c", """
-# 增强的依赖包检查
+# 美化的依赖包检查
 import sys
-required_packages = {
-    'requests': 'requests',
-    'pandas': 'pandas', 
-    'numpy': 'numpy',
-    'PyYAML': 'yaml'
-}
+import time
+import re
 
+def parse_requirements():
+    '''动态解析requirements.txt文件'''
+    try:
+        with open('requirements.txt', 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        packages = {}
+        for line in lines:
+            line = line.strip()
+            # 跳过注释和空行
+            if line.startswith('#') or not line:
+                continue
+            
+            # 解析包名 (移除版本要求)
+            package_name = re.split(r'[><=!]', line)[0].strip()
+            
+            # 特殊映射关系
+            import_mapping = {
+                'PyYAML': 'yaml',
+                'python-dateutil': 'dateutil',
+                'beautifulsoup4': 'bs4',
+                'python-dotenv': 'dotenv',
+                'lxml': 'lxml',
+                'charset-normalizer': 'charset_normalizer'  # 修复：连字符变下划线
+            }
+            
+            import_name = import_mapping.get(package_name, package_name.lower())
+            packages[package_name] = import_name
+            
+        return packages
+    except Exception as e:
+        # 如果无法读取requirements.txt，使用基本包列表
+        return {
+            'requests': 'requests',
+            'pandas': 'pandas', 
+            'numpy': 'numpy',
+            'PyYAML': 'yaml'
+        }
+
+required_packages = parse_requirements()
+total_packages = len(required_packages)
+checked_count = 0
 missing = []
 version_info = {}
 
+print(f'正在检查 {total_packages} 个依赖包...')
+print()
+
+def show_progress(current, total, package_name='', status=''):
+    percentage = int((current / total) * 100)
+    filled = int(percentage / 5)  # 20个字符的进度条
+    bar = '#' * filled + '.' * (20 - filled)
+    # Windows兼容优化：使用固定宽度格式避免文本重叠
+    line = f'[{bar}] {percentage:3d}% ({current:2d}/{total:2d}) {package_name:<20} {status:<10}'
+    print(f'\r{line:<80}', end='', flush=True)
+
 for package_name, import_name in required_packages.items():
+    show_progress(checked_count, total_packages, package_name, '检查中...')
+    time.sleep(0.1)  # 短暂延迟使进度条可见
+    
     try:
         module = __import__(import_name)
         version = getattr(module, '__version__', 'unknown')
         version_info[package_name] = version
-        print(f'[OK] {package_name} (version: {version})')
+        checked_count += 1
+        show_progress(checked_count, total_packages, package_name, 'OK')
     except ImportError as e:
         missing.append(package_name)
-        print(f'[MISSING] {package_name}: {e}')
+        checked_count += 1
+        show_progress(checked_count, total_packages, package_name, 'MISSING')
+
+print()  # 换行
+print()
 
 if missing:
-    print(f'Missing packages: {missing}')
+    print(f'缺少依赖包: {len(missing)} 个')
+    for pkg in missing:
+        print(f'  X {pkg}')
     exit(1)
 else:
-    print(f'[OK] 所有依赖包已安装: {version_info}')
+    print(f'+ 所有依赖包检查完成 ({total_packages}/{total_packages})')
+    # 只显示关键包的版本信息
+    key_packages = ['requests', 'pandas', 'numpy', 'PyYAML']
+    for pkg in key_packages:
+        if pkg in version_info:
+            print(f'  + {pkg}: {version_info[pkg]}')
+    if len(version_info) > len(key_packages):
+        print(f'  + 其他 {len(version_info) - len(key_packages)} 个包已安装')
             """
         ], capture_output=True, text=True, check=False, timeout=60)
         
-        print(result.stdout)
+        # 实时显示进度条输出
+        if result.stdout:
+            # 逐行输出，保持进度条的实时效果
+            lines = result.stdout.strip().split('\n')
+            for line in lines:
+                if line.strip():
+                    print(line)
         
         if result.returncode != 0:
             print_status("发现缺失的依赖包，正在安装...", "WARNING")
@@ -294,7 +393,7 @@ else:
 
 
 def install_dependencies(system_cache: SystemCache = None) -> bool:
-    """安装依赖包"""
+    """安装依赖包 - 优先使用官方源，失败后自动切换国内镜像"""
     base_dir, venv_dir, venv_python, venv_pip = get_venv_paths()
     requirements_file = base_dir / "requirements.txt"
     
@@ -303,46 +402,89 @@ def install_dependencies(system_cache: SystemCache = None) -> bool:
     try:
         # 升级pip
         print_status("升级pip...")
-        result = subprocess.run([
-            str(venv_python), "-m", "pip", "install", "--upgrade", "pip"
-        ], check=True, capture_output=True, text=True, timeout=120)
-        
-        if result.returncode != 0:
-            print_status("pip升级失败，但继续安装依赖包", "WARNING")
-        
-        # 安装依赖包
-        print_status("安装项目依赖包...")
-        result = subprocess.run([
-            str(venv_pip), "install", "-r", str(requirements_file)
-        ], check=True, capture_output=True, text=True, timeout=300)
-        
-        if result.returncode == 0:
-            print_status("依赖包安装完成", "OK")
-            return True
-        else:
-            # 尝试使用国内镜像源
-            print_status("尝试使用国内镜像源重新安装...", "WARNING")
+        try:
             result = subprocess.run([
-                str(venv_pip), "install", "-r", str(requirements_file),
-                "-i", "https://pypi.tuna.tsinghua.edu.cn/simple"
-            ], check=True, capture_output=True, text=True, timeout=300)
+                str(venv_python), "-m", "pip", "install", "--upgrade", "pip"
+            ], capture_output=True, text=True, timeout=120)
             
             if result.returncode == 0:
-                print_status("依赖包安装完成（使用国内镜像）", "OK")
+                print_status("pip升级完成", "OK")
+            else:
+                print_status("pip升级失败，继续安装依赖包", "WARNING")
+        except subprocess.TimeoutExpired:
+            print_status("pip升级超时，继续安装依赖包", "WARNING")
+        except Exception:
+            print_status("pip升级异常，继续安装依赖包", "WARNING")
+        
+        # 第一次尝试：使用官方PyPI源安装
+        print_status("尝试从官方PyPI源安装依赖包...")
+        try:
+            result = subprocess.run([
+                str(venv_pip), "install", "-r", str(requirements_file)
+            ], capture_output=True, text=True, timeout=300)
+            
+            if result.returncode == 0:
+                print_status("依赖包安装完成（官方源）", "OK")
                 return True
             else:
-                error_msg = f"依赖包安装失败: {result.stderr}"
-                solution = "检查网络连接或手动安装: pip install -r requirements.txt"
-                raise EnvironmentError("依赖包", "安装失败", error_msg, solution)
+                print_status(f"官方源安装失败：{result.stderr[:100]}...", "WARNING")
                 
-    except subprocess.TimeoutExpired:
-        error_msg = "依赖包安装超时"
-        solution = "检查网络连接或手动安装依赖包"
-        raise EnvironmentError("依赖包", "安装超时", error_msg, solution)
-    except subprocess.CalledProcessError as e:
-        error_msg = f"依赖包安装失败: {e.stderr}"
-        solution = "检查网络连接或手动安装依赖包"
+        except subprocess.TimeoutExpired:
+            print_status("官方源安装超时", "WARNING")
+        except Exception as e:
+            print_status(f"官方源安装异常：{str(e)[:50]}...", "WARNING")
+        
+        # 第二次尝试：使用清华大学镜像源
+        print_status("切换到清华大学镜像源重新安装...", "INFO")
+        try:
+            result = subprocess.run([
+                str(venv_pip), "install", "-r", str(requirements_file),
+                "-i", "https://pypi.tuna.tsinghua.edu.cn/simple",
+                "--trusted-host", "pypi.tuna.tsinghua.edu.cn"
+            ], capture_output=True, text=True, timeout=300)
+            
+            if result.returncode == 0:
+                print_status("依赖包安装完成（清华镜像）", "OK")
+                return True
+            else:
+                print_status(f"清华镜像安装失败：{result.stderr[:100]}...", "WARNING")
+                
+        except subprocess.TimeoutExpired:
+            print_status("清华镜像安装超时", "WARNING")
+        except Exception as e:
+            print_status(f"清华镜像安装异常：{str(e)[:50]}...", "WARNING")
+        
+        # 第三次尝试：使用阿里云镜像源
+        print_status("切换到阿里云镜像源重新安装...", "INFO")
+        try:
+            result = subprocess.run([
+                str(venv_pip), "install", "-r", str(requirements_file),
+                "-i", "https://mirrors.aliyun.com/pypi/simple/",
+                "--trusted-host", "mirrors.aliyun.com"
+            ], capture_output=True, text=True, timeout=300)
+            
+            if result.returncode == 0:
+                print_status("依赖包安装完成（阿里云镜像）", "OK")
+                return True
+            else:
+                print_status(f"阿里云镜像安装失败：{result.stderr[:100]}...", "WARNING")
+                
+        except subprocess.TimeoutExpired:
+            print_status("阿里云镜像安装超时", "WARNING")
+        except Exception as e:
+            print_status(f"阿里云镜像安装异常：{str(e)[:50]}...", "WARNING")
+        
+        # 所有尝试都失败
+        error_msg = "所有安装源都失败，无法安装依赖包"
+        solution = "请检查网络连接，或手动执行：pip install -r requirements.txt"
         raise EnvironmentError("依赖包", "安装失败", error_msg, solution)
+                
+    except EnvironmentError:
+        raise  # 重新抛出我们自己的错误
+    except Exception as e:
+        error_msg = f"依赖包安装过程中出现未预期错误: {e}"
+        solution = "请检查Python环境和网络连接"
+        raise EnvironmentError("依赖包", "安装异常", error_msg, solution)
 
 
 def check_data_files(progress_tracker: ProgressTracker = None) -> bool:
@@ -717,8 +859,8 @@ def main():
         """)
         return
     
-    # 打印标题
-    print_section_header("智能文献检索与综述大纲生成系统启动器 v2.0")
+    # 打印启动横幅
+    print_startup_banner()
     print(f"启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"操作系统: {platform.system()} {platform.release()}")
     print(f"Python版本: {sys.version}")
