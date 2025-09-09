@@ -65,13 +65,13 @@ if (-not (Test-Path "requirements.txt")) {
 # Install dependencies (if needed)
 Write-Host "[INFO] Checking dependencies with progress indicator..." -ForegroundColor Yellow
 & "venv\Scripts\python.exe" -c "
-# 美化的依赖包检查
+# ���������������
 import sys
 import time
 import re
 
 def parse_requirements():
-    '''动态解析requirements.txt文件'''
+    '''��̬����requirements.txt�ļ�'''
     try:
         with open('requirements.txt', 'r', encoding='utf-8') as f:
             lines = f.readlines()
@@ -79,14 +79,14 @@ def parse_requirements():
         packages = {}
         for line in lines:
             line = line.strip()
-            # 跳过注释和空行
+            # ����ע�ͺͿ���
             if line.startswith('#') or not line:
                 continue
             
-            # 解析包名 (移除版本要求)
+            # �������� (�Ƴ��汾Ҫ��)
             package_name = re.split(r'[><=!]', line)[0].strip()
             
-            # 特殊映射关系
+            # ����ӳ���ϵ
             import_mapping = {
                 'PyYAML': 'yaml',
                 'python-dateutil': 'dateutil',
@@ -101,7 +101,7 @@ def parse_requirements():
             
         return packages
     except Exception as e:
-        # 如果无法读取requirements.txt，使用基本包列表
+        # ����޷���ȡrequirements.txt��ʹ�û������б�
         return {
             'requests': 'requests',
             'pandas': 'pandas', 
@@ -120,15 +120,15 @@ print()
 
 def show_progress(current, total, package_name='', status=''):
     percentage = int((current / total) * 100)
-    filled = int(percentage / 5)  # 20个字符的进度条
+    filled = int(percentage / 5)  # 20���ַ��Ľ�����
     bar = '#' * filled + '.' * (20 - filled)
-    # Windows PowerShell优化：使用固定宽度格式避免重叠
+    # Windows PowerShell�Ż���ʹ�ù̶����ȸ�ʽ�����ص�
     line = f'[{bar}] {percentage:3d}% ({current:2d}/{total:2d}) {package_name:<20} {status:<10}'
     print(f'\r{line:<80}', end='', flush=True)
 
 for package_name, import_name in required_packages.items():
     show_progress(checked_count, total_packages, package_name, 'checking...')
-    time.sleep(0.1)  # 短暂延迟使进度条可见
+    time.sleep(0.1)  # �����ӳ�ʹ�������ɼ�
     
     try:
         module = __import__(import_name)
@@ -141,7 +141,7 @@ for package_name, import_name in required_packages.items():
         checked_count += 1
         show_progress(checked_count, total_packages, package_name, 'MISSING')
 
-print()  # 换行
+print()  # ����
 print()
 
 if missing:
@@ -151,7 +151,7 @@ if missing:
     exit(1)
 else:
     print(f'+ All dependencies checked ({total_packages}/{total_packages})')
-    # 只显示关键包的版本信息
+    # ֻ��ʾ�ؼ����İ汾��Ϣ
     key_packages = ['requests', 'pandas', 'numpy', 'PyYAML']
     for pkg in key_packages:
         if pkg in version_info:
@@ -163,21 +163,21 @@ else:
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[WARNING] Missing dependencies found, installing..." -ForegroundColor Yellow
     
-    # 第一次尝试：使用官方PyPI源安装
+    # ��һ�γ��ԣ�ʹ�ùٷ�PyPIԴ��װ
     Write-Host "[INFO] Trying to install from official PyPI source..." -ForegroundColor Cyan
     & "venv\Scripts\python.exe" -m pip install -r requirements.txt --quiet
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[SUCCESS] Dependencies installed successfully (Official PyPI)" -ForegroundColor Green
     } else {
-        # 第二次尝试：使用清华大学镜像源
+        # �ڶ��γ��ԣ�ʹ���廪��ѧ����Դ
         Write-Host "[INFO] Official source failed, switching to Tsinghua mirror..." -ForegroundColor Yellow
         & "venv\Scripts\python.exe" -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn --quiet
         
         if ($LASTEXITCODE -eq 0) {
             Write-Host "[SUCCESS] Dependencies installed successfully (Tsinghua Mirror)" -ForegroundColor Green
         } else {
-            # 第三次尝试：使用阿里云镜像源
+            # �����γ��ԣ�ʹ�ð����ƾ���Դ
             Write-Host "[INFO] Tsinghua mirror failed, switching to Aliyun mirror..." -ForegroundColor Yellow
             & "venv\Scripts\python.exe" -m pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com --quiet
             
