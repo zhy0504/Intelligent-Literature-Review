@@ -1,38 +1,149 @@
-# 示例配置文件
-# 请复制此文件为 ai_config.yaml 并填入你的API配置
+# ==========================================
+# 智能文献综述系统 - AI服务配置模板
+# ==========================================
+# 使用说明：
+# 1. 复制此文件为 ai_config.yaml：copy ai_config_example.yaml ai_config.yaml
+# 2. 根据你使用的AI服务修改配置参数
+# 3. 至少配置一个AI服务，系统会自动选择第一个可用的服务
+# 4. 支持配置多个服务作为备选，提高系统稳定性
+# ==========================================
 
-# OpenAI配置示例
-openai_example:
-  name: "openai_example"
-  api_type: "openai"
-  base_url: "https://api.openai.com/"
-  api_key: "your_openai_api_key_here"
-  default_model: "gpt-3.5-turbo"
-  timeout: 60
+# ==========================================
+# AI服务配置区域
+# ==========================================
+# 注意：所有AI服务配置必须放在 ai_services 节点下
+ai_services:
 
-# OpenAI兼容接口示例 (如Ollama, LocalAI等)
-local_openai:
-  name: "local_openai"
-  api_type: "openai"
-  base_url: "http://localhost:11434/v1/"  # Ollama默认端口
-  api_key: "not-needed"  # 本地服务通常不需要真实API key
-  default_model: ""
-  timeout: 120
+  # ==========================================
+  # OpenAI官方API配置 
+  # ==========================================
+  # 适用于：ChatGPT、GPT-4等官方模型
+  # 获取API密钥：https://platform.openai.com/api-keys
+  openai_official:
+    name: "openai_official"              # 服务名称，可自定义但需保持唯一
+    api_type: "openai"                   # API类型，固定值："openai"
+    base_url: "https://api.openai.com/v1/"  # OpenAI官方API端点
+    api_key: "sk-your_openai_api_key_here"  # 你的OpenAI API密钥，以sk-开头
+    default_model: "gpt-3.5-turbo"      # 默认使用的模型
+    timeout: 60                          # 请求超时时间(秒)，建议60-120秒
+    status: "active"                     # 服务状态：active(启用) 或 inactive(禁用)
+    description: "OpenAI官方API服务"      # 服务描述，用于识别和管理
 
-# Google Gemini配置示例
-gemini_example:
-  name: "gemini_example" 
-  api_type: "gemini"
-  base_url: "https://generativelanguage.googleapis.com/"
-  api_key: "your_gemini_api_key_here"
-  default_model: "gemini-pro"
-  timeout: 60
+  # ==========================================
+  # OpenAI兼容服务配置示例
+  # ==========================================
+  # 适用于：国内API代理商、自建OpenAI兼容服务等
+  openai_proxy:
+    name: "openai_proxy"                 # 服务名称
+    api_type: "openai"                   # API类型保持"openai"
+    base_url: "https://api.your-proxy.com/v1/"  # 代理服务的API端点
+    api_key: "your_proxy_api_key"       # 代理服务的API密钥
+    default_model: "gpt-3.5-turbo"      # 默认模型，根据代理商支持的模型调整
+    timeout: 90                          # 代理服务可能较慢，可适当增加超时时间
+    status: "inactive"                   # 默认禁用，需要时改为"active"
+    description: "OpenAI代理服务"         # 服务描述
 
-# 自定义OpenAI兼容服务示例
-custom_service:
-  name: "custom_service"
-  api_type: "openai"
-  base_url: "https://your-custom-endpoint.com/v1/"
-  api_key: "your_custom_api_key"
-  default_model: "custom-model"
-  timeout: 90
+  # ==========================================
+  # 本地AI服务配置 (Ollama示例)
+  # ==========================================
+  # 适用于：Ollama、LocalAI、Text Generation WebUI等本地部署的AI服务
+  # Ollama安装：https://ollama.ai/
+  local_ollama:
+    name: "local_ollama"                 # 服务名称
+    api_type: "openai"                   # 使用OpenAI兼容接口
+    base_url: "http://localhost:11434/v1/"  # Ollama默认端口和路径
+    api_key: "not-needed"                # 本地服务通常不需要API密钥，保持此值
+    default_model: "llama2"              # 本地模型名称，需先通过'ollama pull'下载
+    timeout: 300                         # 本地AI响应较慢，建议较长超时时间
+    status: "inactive"                   # 默认禁用，本地服务启动后改为"active"
+    description: "Ollama本地AI服务"       # 服务描述
+
+  # ==========================================
+  # Google Gemini配置
+  # ==========================================
+  # 适用于：Google Gemini Pro、Gemini Pro Vision等
+  # 获取API密钥：https://makersuite.google.com/app/apikey
+  gemini_official:
+    name: "gemini_official"              # 服务名称
+    api_type: "gemini"                   # API类型，固定值："gemini"
+    base_url: "https://generativelanguage.googleapis.com/"  # Gemini API端点
+    api_key: "AIzaSy_your_gemini_api_key_here"  # 你的Gemini API密钥，以AIzaSy开头
+    default_model: "gemini-1.5-pro"     # 推荐模型：gemini-1.5-pro（更强大）或gemini-pro
+    timeout: 90                          # Gemini服务响应时间
+    status: "inactive"                   # 默认禁用，配置完成后改为"active"
+    description: "Google Gemini官方服务" # 服务描述
+
+  # ==========================================
+  # DeepSeek API配置示例
+  # ==========================================
+  # 适用于：DeepSeek、通义千问等国产AI服务
+  deepseek_api:
+    name: "deepseek_api"                 # 服务名称
+    api_type: "openai"                   # 使用OpenAI兼容接口
+    base_url: "https://api.deepseek.com/v1/"  # DeepSeek API端点
+    api_key: "sk-your_deepseek_api_key"  # DeepSeek API密钥
+    default_model: "deepseek-chat"       # DeepSeek聊天模型
+    timeout: 120                         # 请求超时时间
+    status: "inactive"                   # 默认禁用
+    description: "DeepSeek AI服务"        # 服务描述
+
+  # ==========================================
+  # 月之暗面Kimi配置示例
+  # ==========================================
+  moonshot_api:
+    name: "moonshot_api"                 # 服务名称
+    api_type: "openai"                   # 使用OpenAI兼容接口
+    base_url: "https://api.moonshot.cn/v1/"  # Kimi API端点
+    api_key: "sk-your_moonshot_api_key"  # Kimi API密钥
+    default_model: "moonshot-v1-8k"      # 模型选项：moonshot-v1-8k、moonshot-v1-32k、moonshot-v1-128k
+    timeout: 120                         # 请求超时时间
+    status: "inactive"                   # 默认禁用
+    description: "月之暗面Kimi服务"       # 服务描述
+
+# ==========================================
+# 默认服务配置
+# ==========================================
+# 指定系统启动时默认使用的AI服务名称
+# 必须与上面 ai_services 中的某个服务名称对应
+default_service: "openai_official"       # 默认使用OpenAI官方服务，请根据实际配置修改
+
+# ==========================================
+# 系统设置
+# ==========================================
+# 系统行为和功能开关配置
+settings:
+  allow_service_switch: true             # 是否允许运行时切换AI服务
+  auto_retry: true                       # 请求失败时是否自动重试
+  max_retries: 3                         # 最大重试次数
+  show_service_status: true              # 是否在界面显示服务状态信息
+  log_level: "info"                      # 日志级别：debug, info, warning, error
+  enable_streaming: true                 # 是否启用流式响应（提高响应体验）
+  request_timeout: 300                   # 全局请求超时时间(秒)，会被具体服务的timeout覆盖
+
+# ==========================================
+# 配置说明和注意事项
+# ==========================================
+# 
+# 1. 字段说明：
+#    - name: 服务的唯一标识符，用于在系统中区分不同的AI服务
+#    - api_type: API类型，支持"openai"和"gemini"两种
+#    - base_url: AI服务的API端点地址，注意末尾的斜杠
+#    - api_key: API访问密钥，不同服务的密钥格式不同
+#    - default_model: 默认使用的AI模型名称
+#    - timeout: 请求超时时间，单位为秒
+#
+# 2. 使用建议：
+#    - 建议至少配置2个不同的AI服务作为备选
+#    - 本地服务响应较慢，建议设置较长的超时时间(300秒以上)
+#    - 云服务API密钥请妥善保管，不要泄露给他人
+#    - 不同模型的能力和价格不同，请根据需要选择
+#
+# 3. 常见模型推荐：
+#    OpenAI: gpt-3.5-turbo(便宜快速)、gpt-4(质量更高)、gpt-4-turbo(平衡选择)
+#    Gemini: gemini-pro(标准版)、gemini-1.5-pro(增强版)
+#    本地: llama2、qwen、baichuan2等开源模型
+#
+# 4. 故障排除：
+#    - 如果连接失败，检查网络和API密钥是否正确
+#    - 如果超时，可以适当增加timeout值
+#    - 本地服务需要确保AI服务已正确启动并监听指定端口
