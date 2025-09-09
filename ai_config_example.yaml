@@ -22,11 +22,11 @@ ai_services:
   openai_official:
     name: "openai_official"              # 服务名称，可自定义但需保持唯一
     api_type: "openai"                   # API类型，固定值："openai"
-    base_url: "https://api.openai.com/v1/"  # OpenAI官方API端点
+    base_url: "https://api.openai.com/"  # OpenAI官方API端点,不用加V1
     api_key: "sk-your_openai_api_key_here"  # 你的OpenAI API密钥，以sk-开头
-    default_model: "gpt-3.5-turbo"      # 默认使用的模型
-    timeout: 60                          # 请求超时时间(秒)，建议60-120秒
-    status: "active"                     # 服务状态：active(启用) 或 inactive(禁用)
+    default_model: ""      # 默认使用的模型
+    timeout: 600                          # 请求超时时间(秒)，建议60-120秒
+    status: "inactive"                     # 服务状态：active(启用) 或 inactive(禁用)
     description: "OpenAI官方API服务"      # 服务描述，用于识别和管理
 
   # ==========================================
@@ -36,11 +36,11 @@ ai_services:
   openai_proxy:
     name: "openai_proxy"                 # 服务名称
     api_type: "openai"                   # API类型保持"openai"
-    base_url: "https://api.your-proxy.com/v1/"  # 代理服务的API端点
+    base_url: "https://api.your-proxy.com/"  # 代理服务的API端点,不用加v1
     api_key: "your_proxy_api_key"       # 代理服务的API密钥
-    default_model: "gpt-3.5-turbo"      # 默认模型，根据代理商支持的模型调整
-    timeout: 90                          # 代理服务可能较慢，可适当增加超时时间
-    status: "inactive"                   # 默认禁用，需要时改为"active"
+    default_model: ""      # 默认模型，根据代理商支持的模型调整
+    timeout: 900                          # 代理服务可能较慢，可适当增加超时时间
+    status: "active"                   # 默认禁用，需要时改为"active"
     description: "OpenAI代理服务"         # 服务描述
 
   # ==========================================
@@ -51,9 +51,9 @@ ai_services:
   local_ollama:
     name: "local_ollama"                 # 服务名称
     api_type: "openai"                   # 使用OpenAI兼容接口
-    base_url: "http://localhost:11434/v1/"  # Ollama默认端口和路径
+    base_url: "http://localhost:11434/"  # Ollama默认端口和路径,,不用加v1
     api_key: "not-needed"                # 本地服务通常不需要API密钥，保持此值
-    default_model: "llama2"              # 本地模型名称，需先通过'ollama pull'下载
+    default_model: ""              # 本地模型名称，需先通过'ollama pull'下载
     timeout: 300                         # 本地AI响应较慢，建议较长超时时间
     status: "inactive"                   # 默认禁用，本地服务启动后改为"active"
     description: "Ollama本地AI服务"       # 服务描述
@@ -68,8 +68,8 @@ ai_services:
     api_type: "gemini"                   # API类型，固定值："gemini"
     base_url: "https://generativelanguage.googleapis.com/"  # Gemini API端点
     api_key: "AIzaSy_your_gemini_api_key_here"  # 你的Gemini API密钥，以AIzaSy开头
-    default_model: "gemini-1.5-pro"     # 推荐模型：gemini-1.5-pro（更强大）或gemini-pro
-    timeout: 90                          # Gemini服务响应时间
+    default_model: ""     # 推荐模型：gemini-1.5-pro（更强大）或gemini-pro
+    timeout: 900                          # Gemini服务响应时间
     status: "inactive"                   # 默认禁用，配置完成后改为"active"
     description: "Google Gemini官方服务" # 服务描述
 
@@ -80,10 +80,10 @@ ai_services:
   deepseek_api:
     name: "deepseek_api"                 # 服务名称
     api_type: "openai"                   # 使用OpenAI兼容接口
-    base_url: "https://api.deepseek.com/v1/"  # DeepSeek API端点
+    base_url: "https://api.deepseek.com/"  # DeepSeek API端点,,不用加v1
     api_key: "sk-your_deepseek_api_key"  # DeepSeek API密钥
     default_model: "deepseek-chat"       # DeepSeek聊天模型
-    timeout: 120                         # 请求超时时间
+    timeout: 900                         # 请求超时时间
     status: "inactive"                   # 默认禁用
     description: "DeepSeek AI服务"        # 服务描述
 
@@ -93,10 +93,10 @@ ai_services:
   moonshot_api:
     name: "moonshot_api"                 # 服务名称
     api_type: "openai"                   # 使用OpenAI兼容接口
-    base_url: "https://api.moonshot.cn/v1/"  # Kimi API端点
+    base_url: "https://api.moonshot.cn/"  # Kimi API端点,不用加v1
     api_key: "sk-your_moonshot_api_key"  # Kimi API密钥
     default_model: "moonshot-v1-8k"      # 模型选项：moonshot-v1-8k、moonshot-v1-32k、moonshot-v1-128k
-    timeout: 120                         # 请求超时时间
+    timeout: 900                         # 请求超时时间
     status: "inactive"                   # 默认禁用
     description: "月之暗面Kimi服务"       # 服务描述
 
@@ -105,7 +105,7 @@ ai_services:
 # ==========================================
 # 指定系统启动时默认使用的AI服务名称
 # 必须与上面 ai_services 中的某个服务名称对应
-default_service: "openai_official"       # 默认使用OpenAI官方服务，请根据实际配置修改
+default_service: "openai_proxy"       # 默认使用OpenAI官方服务，请根据实际配置修改
 
 # ==========================================
 # 系统设置

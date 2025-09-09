@@ -1,0 +1,16 @@
+ai_services:
+  gemini-cli:
+    api_key: 'Zhy19870402'
+    api_type: gemini
+    base_url: https://hzzhy.zeabur.app
+    default_model: 
+    description: gemini OpenAI兼容服务
+    name: gemini-cli
+    status: active
+    timeout: 900
+default_service: gemini-cli
+settings:
+  allow_service_switch: true
+  auto_retry: true
+  max_retries: 3
+  show_service_status: true
