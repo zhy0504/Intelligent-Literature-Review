@@ -21,12 +21,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 
 # 导入所有功能模块
-from src.intent_analyzer import IntentAnalyzer, SearchCriteria
-from src.pubmed_search import PubMedSearcher
-from src.literature_filter import LiteratureFilter, FilterConfig, JournalInfoCache
-from src.review_outline_generator import ReviewOutlineGenerator
-from src.medical_review_generator import MedicalReviewGenerator
-from src.data_processor import JournalDataProcessor
+from intent_analyzer import IntentAnalyzer, SearchCriteria
+from pubmed_search import PubMedSearcher
+from literature_filter import LiteratureFilter, FilterConfig, JournalInfoCache
+from review_outline_generator import ReviewOutlineGenerator
+from medical_review_generator import MedicalReviewGenerator
+from data_processor import JournalDataProcessor
 
 
 class SystemCleaner:
@@ -1243,6 +1243,12 @@ class IntelligentLiteratureSystem:
         self.performance_monitor.start_timing("文章生成")
         
         try:
+            # 检查文章生成器是否可用
+            if self.review_generator is None:
+                print("文章生成器初始化失败，无法生成综述文章")
+                return {"success": False, "error": "文章生成器初始化失败", 
+                       "details": "AI配置问题或组件初始化超时，请检查AI服务配置"}
+            
             # 保存临时文件供文章生成器使用
             temp_outline_file = self._save_temp_outline()
             temp_literature_file = self._save_temp_literature()

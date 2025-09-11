@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+镜像源测速脚本
+基于cnpip的优化实现，支持异步并发测速
+"""
+
+import sys
+import time
+import asyncio
+import json
+from typing import Dict, List, Tuple, Optional
+
+# 尝试使用异步HTTP客户端，回退到同步
+try:
+    import aiohttp
+    ASYNC_SUPPORTED = True
+except ImportError:
+    import requests
+    ASYNC_SUPPORTED = False
+
+# 镜像源配置 - 基于cnpip的完整列表
+MIRRORS = {
+    "Official PyPI": "https://pypi.org/simple/",
+    "Tsinghua TUNA": "https://pypi.tuna.tsinghua.edu.cn/simple",
+    "Aliyun": "https://mirrors.aliyun.com/pypi/simple",
+    "USTC": "https://pypi.mirrors.ustc.edu.cn/simple", 
+    "Huawei Cloud": "https://repo.huaweicloud.com/repository/pypi/simple",
+    "Tencent Cloud": "https://mirrors.cloud.tencent.com/pypi/simple",
+    "Westlake Univ": "https://mirrors.westlake.edu.cn/pypi/simple",
+    "SUSTech": "https://mirrors.sustech.edu.cn/pypi/web/simple"
+}
+
+# 对应的pip参数配置
+MIRROR_ARGS = {
+    "Official PyPI": [],
+    "Tsinghua TUNA": ["-i", "https://pypi.tuna.tsinghua.edu.cn/simple", "--trusted-host", "pypi.tuna.tsinghua.edu.cn"],
+    "Aliyun": ["-i", "https://mirrors.aliyun.com/pypi/simple", "--trusted-host", "mirrors.aliyun.com"],
+    "USTC": ["-i", "https://pypi.mirrors.ustc.edu.cn/simple", "--trusted-host", "pypi.mirrors.ustc.edu.cn"],
+    "Huawei Cloud": ["-i", "https://repo.huaweicloud.com/repository/pypi/simple", "--trusted-host", "repo.huaweicloud.com"],
+    "Tencent Cloud": ["-i", "https://mirrors.cloud.tencent.com/pypi/simple", "--trusted-host", "mirrors.cloud.tencent.com"],
+    "Westlake Univ": ["-i", "https://mirrors.westlake.edu.cn/pypi/simple", "--trusted-host", "mirrors.westlake.edu.cn"],
+    "SUSTech": ["-i", "https://mirrors.sustech.edu.cn/pypi/web/simple", "--trusted-host", "mirrors.sustech.edu.cn"]
+}
+
+
+async def measure_mirror_speed_async(session: aiohttp.ClientSession, name: str, url: str) -> Tuple[str, Optional[float], str]:
+    """异步测速函数"""
+    try:
+        start_time = time.monotonic()
+        async with session.head(url, timeout=10) as response:
+            # 接受200-400范围的状态码（包括重定向）
+            if 200 <= response.status < 400:
+                end_time = time.monotonic()
+                return name, round((end_time - start_time) * 1000, 2), url
+            else:
+                return name, None, url
+    except Exception:
+        return name, None, url
+
+
+async def test_mirrors_async() -> List[Tuple[str, Optional[float], str]]:
+    """异步并发测速主函数"""
+    timeout = aiohttp.ClientTimeout(total=15)
+    connector = aiohttp.TCPConnector(limit=8)  # 增加并发连接数
+    
+    async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+        tasks = [measure_mirror_speed_async(session, name, url) 
+                for name, url in MIRRORS.items()]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    # 过滤掉异常结果
+    valid_results = [r for r in results if isinstance(r, tuple)]
+    # 按速度排序，错误的放在最后
+    valid_results.sort(key=lambda x: (x[1] is None, x[1] if x[1] is not None else float('inf')))
+    
+    return valid_results
+
+
+def measure_mirror_speed_sync(name: str, url: str) -> Tuple[str, Optional[float], str]:
+    """同步测速函数"""
+    try:
+        start_time = time.monotonic()
+        response = requests.head(url, timeout=10)
+        # 接受200-400范围的状态码
+        if 200 <= response.status_code < 400:
+            end_time = time.monotonic()
+            return name, round((end_time - start_time) * 1000, 2), url
+        else:
+            return name, None, url
+    except Exception:
+        return name, None, url
+
+
+def test_mirrors_sync() -> List[Tuple[str, Optional[float], str]]:
+    """同步测速函数"""
+    results = [measure_mirror_speed_sync(name, url) for name, url in MIRRORS.items()]
+    # 按速度排序，错误的放在最后
+    results.sort(key=lambda x: (x[1] is None, x[1] if x[1] is not None else float('inf')))
+    return results
+
+
+def print_results(results: List[Tuple[str, Optional[float], str]], total_time: float):
+    """打印测速结果"""
+    print("镜像源测速结果:")
+    print("-" * 70)
+    print(f"{'镜像名称':<15} {'耗时(ms)':<12} {'地址'}")
+    print("-" * 70)
+    
+    for name, speed, url in results:
+        if speed is not None:
+            print(f"{name:<15} {speed:<12.2f} {url}")
+        else:
+            print(f"{name:<15} {'Failed':<12} {url}")
+    
+    print("-" * 70)
+    print(f"总耗时: {total_time:.2f}ms")
+
+
+def get_fastest_mirror(results: List[Tuple[str, Optional[float], str]]) -> Optional[Tuple[str, List[str]]]:
+    """获取最快的镜像及其pip参数"""
+    for name, speed, url in results:
+        if speed is not None:
+            return name, MIRROR_ARGS[name]
+    return None
+
+
+def main():
+    """主函数"""
+    # 如果指定了JSON输出，则不显示中文输出
+    json_output = len(sys.argv) > 1 and sys.argv[1] == "--json"
+    
+    if not json_output:
+        print("开始镜像源测速...")
+    
+    start_time = time.monotonic()
+    
+    if ASYNC_SUPPORTED:
+        if not json_output:
+            print("使用异步并发测速...")
+        results = asyncio.run(test_mirrors_async())
+    else:
+        if not json_output:
+            print("使用同步测速...")
+        results = test_mirrors_sync()
+    
+    total_time = (time.monotonic() - start_time) * 1000
+    
+    # 获取最快镜像
+    fastest = get_fastest_mirror(results)
+    
+    if fastest:
+        name, args = fastest
+        
+        if json_output:
+            # 只输出JSON，不输出其他内容
+            result_data = {
+                "fastest_mirror": name,
+                "pip_args": args,
+                "all_results": [
+                    {"name": r[0], "speed": r[1], "url": r[2]} for r in results
+                ]
+            }
+            print(json.dumps(result_data, ensure_ascii=False, indent=2))
+        else:
+            # 打印完整结果
+            print_results(results, total_time)
+            print(f"\n推荐使用最快镜像: {name}")
+    else:
+        if json_output:
+            print('{"error": "无可用镜像源"}')
+        else:
+            print("\n无可用镜像源")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

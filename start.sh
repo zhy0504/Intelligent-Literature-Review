@@ -1,5 +1,5 @@
 #!/bin/bash
-# 智能文献系统Linux/Mac启动脚本
+# Smart Literature System Linux/Mac Startup Script
 
 echo ""
 echo "==========================================================================="
@@ -26,49 +26,94 @@ echo ""
 echo "==========================================================================="
 echo ""
 
-# 获取脚本所在目录
+# Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# 检查Python是否安装
+# Check Python installation
 if ! command -v python3 &> /dev/null; then
-    echo "[错误] 未找到Python3，请先安装Python3"
+    echo "[ERROR] Python3 not found, please install Python3 first"
     exit 1
 fi
 
-# 检查虚拟环境
+# Check virtual environment
 if [ ! -d "venv" ]; then
-    echo "[信息] 正在创建虚拟环境..."
+    echo "[INFO] Creating virtual environment..."
     python3 -m venv venv
     if [ $? -ne 0 ]; then
-        echo "[错误] 创建虚拟环境失败"
+        echo "[ERROR] Failed to create virtual environment"
         exit 1
     fi
-    echo "[成功] 虚拟环境创建成功"
+    echo "[SUCCESS] Virtual environment created successfully"
 fi
 
-# 直接使用虚拟环境中的Python
-echo "[信息] 使用虚拟环境Python..."
+# Check virtual environment Python
+echo "[INFO] Using virtual environment Python..."
 if [ ! -f "venv/bin/python" ]; then
-    echo "[错误] 虚拟环境Python不存在"
+    echo "[ERROR] Virtual environment Python not found"
     exit 1
 fi
 
-# 检查依赖
+# Check requirements file
 if [ ! -f "requirements.txt" ]; then
-    echo "[错误] 未找到requirements.txt文件"
+    echo "[ERROR] requirements.txt file not found"
     exit 1
 fi
 
-# 安装依赖（如果需要）
-echo "[信息] 检查依赖包（带进度条）..."
-venv/bin/python -c "
+# Check for existing cache
+CACHE_FILE=".system_cache/environment_check.json"
+USE_CACHE=false
+SKIP_DEPENDENCY_CHECK=false
+CACHE_ASKED=false
+
+if [ -f "$CACHE_FILE" ]; then
+    # Check if cache is less than 24 hours old
+    if command -v python3 &> /dev/null; then
+        CACHE_VALID=$(python3 -c "
+import json
+import os
+from datetime import datetime
+try:
+    with open('$CACHE_FILE', 'r') as f:
+        cache_data = json.load(f)
+    cache_time = datetime.fromisoformat(cache_data.get('timestamp', '2000-01-01'))
+    time_diff = (datetime.now() - cache_time).total_seconds()
+    if time_diff < 86400:  # 24 hours
+        print('valid')
+        print(cache_data.get('timestamp', ''))
+    else:
+        print('expired')
+except:
+    print('invalid')
+" 2>/dev/null)
+        
+        if echo "$CACHE_VALID" | grep -q "valid"; then
+            CACHE_TIME=$(echo "$CACHE_VALID" | tail -n 1 | cut -d'T' -f1-2 | tr 'T' ' ')
+            echo "[INFO] Found environment check cache (Time: $CACHE_TIME)"
+            
+            read -p "Use cached results? Default is Yes (Y/n): " response
+            CACHE_ASKED=true
+            
+            if [ -z "$response" ] || [ "$response" = "y" ] || [ "$response" = "Y" ] || [ "$response" = "yes" ]; then
+                echo "[INFO] Using cached environment check results"
+                USE_CACHE=true
+                SKIP_DEPENDENCY_CHECK=true
+            else
+                echo "[INFO] Re-running environment check"
+            fi
+        fi
+    fi
+fi
+
+# Install dependencies (if needed)
+if [ "$SKIP_DEPENDENCY_CHECK" = false ]; then
+    echo "[INFO] Checking dependencies with progress indicator..."
+    venv/bin/python -c "
 import sys
 import time
 import re
 
 def parse_requirements():
-    '''动态解析requirements.txt文件'''
     try:
         with open('requirements.txt', 'r', encoding='utf-8') as f:
             lines = f.readlines()
@@ -76,14 +121,11 @@ def parse_requirements():
         packages = {}
         for line in lines:
             line = line.strip()
-            # 跳过注释和空行
             if line.startswith('#') or not line:
                 continue
             
-            # 解析包名 (移除版本要求)
             package_name = re.split(r'[><=!]', line)[0].strip()
             
-            # 特殊映射关系
             import_mapping = {
                 'PyYAML': 'yaml',
                 'python-dateutil': 'dateutil',
@@ -98,7 +140,6 @@ def parse_requirements():
             
         return packages
     except Exception as e:
-        # 如果无法读取requirements.txt，使用基本包列表
         return {
             'requests': 'requests',
             'pandas': 'pandas', 
@@ -112,20 +153,19 @@ checked_count = 0
 missing = []
 version_info = {}
 
-print(f'正在检查 {total_packages} 个依赖包...')
+print(f'Checking {total_packages} dependencies...')
 print()
 
 def show_progress(current, total, package_name='', status=''):
     percentage = int((current / total) * 100)
-    filled = int(percentage / 5)  # 20个字符的进度条
+    filled = int(percentage / 5)
     bar = '#' * filled + '.' * (20 - filled)
-    # 跨平台优化：使用固定宽度格式避免文本重叠
     line = f'[{bar}] {percentage:3d}% ({current:2d}/{total:2d}) {package_name:<20} {status:<10}'
     print(f'\r{line:<80}', end='', flush=True)
 
 for package_name, import_name in required_packages.items():
-    show_progress(checked_count, total_packages, package_name, '检查中...')
-    time.sleep(0.1)  # 短暂延迟使进度条可见
+    show_progress(checked_count, total_packages, package_name, 'checking...')
+    time.sleep(0.1)
     
     try:
         module = __import__(import_name)
@@ -138,62 +178,110 @@ for package_name, import_name in required_packages.items():
         checked_count += 1
         show_progress(checked_count, total_packages, package_name, 'MISSING')
 
-print()  # 换行
+print()
 print()
 
 if missing:
-    print(f'缺少依赖包: {len(missing)} 个')
+    print(f'Missing dependencies: {len(missing)} packages')
     for pkg in missing:
         print(f'  X {pkg}')
     exit(1)
 else:
-    print(f'+ 所有依赖包检查完成 ({total_packages}/{total_packages})')
-    # 只显示关键包的版本信息
+    print(f'+ All dependencies checked ({total_packages}/{total_packages})')
     key_packages = ['requests', 'pandas', 'numpy', 'PyYAML']
     for pkg in key_packages:
         if pkg in version_info:
             print(f'  + {pkg}: {version_info[pkg]}')
     if len(version_info) > len(key_packages):
-        print(f'  + 其他 {len(version_info) - len(key_packages)} 个包已安装')
+        print(f'  + Other {len(version_info) - len(key_packages)} packages installed')
 "
 
-if [ $? -ne 0 ]; then
-    echo "[警告] 发现缺失依赖包，正在安装..."
-    
-    # 第一次尝试：使用官方PyPI源安装
-    echo "[信息] 尝试从官方PyPI源安装依赖包..."
-    venv/bin/python -m pip install -r requirements.txt --quiet
-    
-    if [ $? -eq 0 ]; then
-        echo "[成功] 依赖包安装完成（官方PyPI源）"
-    else
-        # 第二次尝试：使用清华大学镜像源
-        echo "[信息] 官方源失败，切换到清华大学镜像源..."
-        venv/bin/python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn --quiet
+    # 只有在依赖包检查失败时才执行镜像测速和安装
+    if [ $? -ne 0 ]; then
+        echo "[WARNING] Missing dependencies found, installing with speed test..."
         
-        if [ $? -eq 0 ]; then
-            echo "[成功] 依赖包安装完成（清华镜像）"
-        else
-            # 第三次尝试：使用阿里云镜像源
-            echo "[信息] 清华镜像失败，切换到阿里云镜像源..."
-            venv/bin/python -m pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com --quiet
+        # Simple mirror speed testing
+        echo "[INFO] Testing mirror speeds to find the fastest source..."
+        
+        declare -A mirrors
+        mirrors["Official PyPI"]="https://pypi.org/simple/"
+        mirrors["Tsinghua TUNA"]="https://pypi.tuna.tsinghua.edu.cn/simple" 
+        mirrors["USTC"]="https://pypi.mirrors.ustc.edu.cn/simple"
+        mirrors["Aliyun"]="https://mirrors.aliyun.com/pypi/simple"
+        
+        declare -A mirror_args
+        mirror_args["Official PyPI"]=""
+        mirror_args["Tsinghua TUNA"]="-i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn"
+        mirror_args["USTC"]="-i https://pypi.mirrors.ustc.edu.cn/simple --trusted-host pypi.mirrors.ustc.edu.cn"
+        mirror_args["Aliyun"]="-i https://mirrors.aliyun.com/pypi/simple --trusted-host mirrors.aliyun.com"
+        
+        fastest_mirror=""
+        fastest_time=9999
+        
+        for mirror_name in "Official PyPI" "Tsinghua TUNA" "USTC" "Aliyun"; do
+            echo -n "  Testing $mirror_name..."
+            
+            start_time=$(date +%s%3N)
+            # Test HTTP response - accept 200, 301, 302 status codes
+            response_code=$(curl -s --head --connect-timeout 5 -w "%{http_code}" "${mirrors[$mirror_name]}" 2>/dev/null | tail -1)
+            if [ $? -eq 0 ] && ([ "$response_code" = "200" ] || [ "$response_code" = "301" ] || [ "$response_code" = "302" ]); then
+                end_time=$(date +%s%3N)
+                response_time=$((end_time - start_time))
+                echo " ${response_time}ms"
+                
+                if [ $response_time -lt $fastest_time ]; then
+                    fastest_time=$response_time
+                    fastest_mirror="$mirror_name"
+                fi
+            elif [ $? -ne 0 ]; then
+                echo " Timeout/Error"
+            else
+                echo " Failed"
+            fi
+        done
+        
+        if [ -n "$fastest_mirror" ]; then
+            echo "[SUCCESS] Fastest mirror: $fastest_mirror (${fastest_time}ms)"
+            echo "[INFO] Installing dependencies with progress display..."
+            
+            install_cmd="venv/bin/python -m pip install -r requirements.txt --progress-bar on --no-warn-script-location ${mirror_args[$fastest_mirror]}"
+            eval $install_cmd
             
             if [ $? -eq 0 ]; then
-                echo "[成功] 依赖包安装完成（阿里云镜像）"
+                echo "[SUCCESS] Dependencies installed successfully from $fastest_mirror"
             else
-                echo "[错误] 所有安装源都失败"
-                echo "[帮助] 请检查网络连接，或手动执行：pip install -r requirements.txt"
+                echo "[ERROR] Installation failed"
                 exit 1
             fi
+        else
+            echo "[ERROR] All mirrors are unreachable"
+            exit 1
         fi
     fi
+else
+    echo "[INFO] Skipping dependency check and mirror testing (using cache)"
 fi
 
-# 显示当前Python路径
-echo "[信息] 当前Python路径:"
+# Show current Python path
+echo "[INFO] Current Python path:"
 venv/bin/python -c "import sys; print(sys.executable)"
 
-# 启动系统
-echo
-echo "[信息] 正在启动智能文献系统..."
-venv/bin/python start.py "$@"
+# Start system
+echo ""
+echo "[INFO] Starting Smart Literature System..."
+
+# Pass appropriate arguments based on cache usage and whether cache was asked
+if [ "$USE_CACHE" = true ]; then
+    # Tell Python script that we already checked cache and user chose to use it
+    export PS_CACHE_USED="true"
+    export PS_CACHE_ASKED="true"
+elif [ "$CACHE_ASKED" = true ]; then
+    # Tell Python script that we asked about cache but user chose not to use it
+    export PS_CACHE_ASKED="true"
+fi
+
+venv/bin/python src/start.py "$@"
+
+# Clean up environment variables
+unset PS_CACHE_USED
+unset PS_CACHE_ASKED

@@ -24,7 +24,7 @@ class IntelligentLiteratureCLI:
     """智能文献系统CLI客户端"""
     
     def __init__(self):
-        self.project_root = Path(__file__).parent
+        self.project_root = Path(__file__).parent.parent  # 修正为真正的项目根目录
         self.venv_path = self.project_root / "venv"
         self.requirements_file = self.project_root / "requirements.txt"
         self.ai_config_file = self.project_root / "ai_config.yaml"

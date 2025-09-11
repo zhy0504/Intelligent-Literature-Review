@@ -21,8 +21,8 @@ import os
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.ai_client import AIClient, ConfigManager, ChatMessage
-from src.prompts_manager import PromptsManager
+from ai_client import AIClient, ConfigManager, ChatMessage
+from prompts_manager import PromptsManager
 
 
 @dataclass
@@ -282,8 +282,8 @@ class MedicalReviewGenerator:
         # 初始化Pandoc导出器
         self.pandoc_exporter = PandocExporter()
         
-        # 确保输出目录存在
-        os.makedirs(self.output_dir, exist_ok=True)
+        # 输出目录将在实际保存文件时创建
+        # os.makedirs(self.output_dir, exist_ok=True)  # 移除提前创建
         
         # 初始化AI配置
         self.config = self._select_config()
@@ -316,8 +316,8 @@ class MedicalReviewGenerator:
         if self.config_name:
             return self.config_manager.get_config(self.config_name)
         else:
-            # 使用aiwave_gemini服务，已测试可用
-            return self.config_manager.get_config('ai_wave')
+            # 与大纲生成器保持一致，使用第一个可用配置
+            return self.config_manager.get_config(configs[0])
     
     def _load_cached_model_config(self):
         """加载缓存的模型配置，与意图分析器保持一致"""
@@ -1002,6 +1002,9 @@ class MedicalReviewGenerator:
         filepath = os.path.join(self.output_dir, filename)
         
         try:
+            # 确保输出目录存在（在实际保存时创建）
+            os.makedirs(self.output_dir, exist_ok=True)
+            
             # 1. 保存Markdown文件
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(content)

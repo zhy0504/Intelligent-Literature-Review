@@ -15,8 +15,8 @@ from typing import Dict, List, Optional, Tuple
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from src.ai_client import AIClient, ConfigManager, ChatMessage
-from src.prompts_manager import PromptsManager
+from ai_client import AIClient, ConfigManager, ChatMessage
+from prompts_manager import PromptsManager
 
 
 class OutlineGeneratorConfig:

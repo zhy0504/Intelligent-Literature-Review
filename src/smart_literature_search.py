@@ -12,11 +12,11 @@ from datetime import datetime
 from typing import List, Dict, Optional
 
 # 导入自定义模块
-from src.data_processor import JournalDataProcessor
-from src.intent_analyzer import IntentAnalyzer, SearchCriteria
-from src.pubmed_search import PubMedSearcher
-from src.literature_filter import LiteratureFilter
-from src.review_outline_generator import ReviewOutlineGenerator
+from data_processor import JournalDataProcessor
+from intent_analyzer import IntentAnalyzer, SearchCriteria
+from pubmed_search import PubMedSearcher
+from literature_filter import LiteratureFilter
+from review_outline_generator import ReviewOutlineGenerator
 
 
 class SmartLiteratureSearchSystem:

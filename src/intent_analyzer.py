@@ -16,8 +16,8 @@ import threading
 from typing import Dict, List, Optional, Tuple, Any, TYPE_CHECKING
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from src.ai_client import AIClient, ConfigManager, ChatMessage
-from src.prompts_manager import PromptsManager
+from ai_client import AIClient, ConfigManager, ChatMessage
+from prompts_manager import PromptsManager
 from dataclasses import dataclass, asdict
 
 

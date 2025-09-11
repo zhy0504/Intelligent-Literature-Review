@@ -64,25 +64,83 @@ def download_pandoc(os_name, arch, version):
         filename = f"pandoc-{version}-linux-{arch}.tar.gz"
         extract_func = extract_tar
     
-    url = f"https://github.com/jgm/pandoc/releases/download/{version}/{filename}"
+    base_url = f"https://github.com/jgm/pandoc/releases/download/{version}/{filename}"
     
-    print(f"下载 {filename}...")
-    print(f"URL: {url}")
+    # 询问用户是否使用国内代理加速
+    print(f"准备下载 {filename}...")
+    print("是否启用国内代理加速下载？(推荐中国大陆用户选择)")
+    print("1. 是 - 使用 gh-proxy.com 代理加速")
+    print("2. 否 - 直连GitHub下载")
     
     try:
-        response = requests.get(url, timeout=300)  # 5分钟超时
-        response.raise_for_status()
-        
-        # 保存到临时文件
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as tmp_file:
-            tmp_file.write(response.content)
-            temp_path = tmp_file.name
-        
+        choice = input("请选择 (1/2，默认为1): ").strip()
+        if choice == "" or choice == "1":
+            url = f"https://gh-proxy.com/{base_url}"
+            print(f"✅ 已启用代理加速下载")
+        else:
+            url = base_url
+            print(f"✅ 使用直连下载")
+    except (EOFError, KeyboardInterrupt):
+        # 处理非交互环境，默认使用代理
+        url = f"https://gh-proxy.com/{base_url}"
+        print(f"⚠️  非交互环境，默认启用代理加速")
+    
+    print(f"下载地址: {url}")
+    
+    def download_with_progress(download_url, desc="下载"):
+        """带进度条的下载函数"""
+        try:
+            print(f"开始{desc}，请稍候...")
+            response = requests.get(download_url, timeout=300, stream=True)
+            response.raise_for_status()
+            
+            # 获取文件大小
+            total_size = int(response.headers.get('content-length', 0))
+            
+            # 保存到临时文件，显示进度
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as tmp_file:
+                if total_size > 0:
+                    print(f"文件大小: {total_size / 1024 / 1024:.1f} MB")
+                    downloaded = 0
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            tmp_file.write(chunk)
+                            downloaded += len(chunk)
+                            # 显示简单进度
+                            percent = (downloaded / total_size) * 100
+                            print(f"\r下载进度: {percent:.1f}% ({downloaded / 1024 / 1024:.1f}/{total_size / 1024 / 1024:.1f} MB)", end="")
+                    print()  # 换行
+                else:
+                    # 如果无法获取大小，直接下载
+                    print("正在下载中...")
+                    tmp_file.write(response.content)
+                    print("下载完成")
+                
+                return tmp_file.name
+                
+        except Exception as e:
+            raise e
+    
+    try:
+        temp_path = download_with_progress(url, "代理下载" if "gh-proxy.com" in url else "直连下载")
         return temp_path, extract_func
         
     except Exception as e:
         print(f"下载失败: {e}")
-        return None, None
+        
+        # 如果使用了代理且失败，尝试直连下载
+        if "gh-proxy.com" in url:
+            print("⚠️  代理下载失败，正在尝试直连GitHub下载...")
+            try:
+                temp_path = download_with_progress(base_url, "直连下载")
+                print("✅ 直连下载成功")
+                return temp_path, extract_func
+                
+            except Exception as direct_e:
+                print(f"❌ 直连下载也失败: {direct_e}")
+                return None, None
+        else:
+            return None, None
 
 def extract_zip(zip_path, target_dir):
     """解压ZIP文件"""

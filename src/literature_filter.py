@@ -9,7 +9,7 @@ import pandas as pd
 import json
 import os
 from typing import List, Dict, Optional, Tuple
-from src.intent_analyzer import SearchCriteria
+from intent_analyzer import SearchCriteria
 import re
 import threading
 import time
@@ -1015,7 +1015,7 @@ def test_literature_filter():
     ]
     
     # 创建筛选条件
-    from src.intent_analyzer import SearchCriteria
+    from intent_analyzer import SearchCriteria
     criteria = SearchCriteria(
         query="diabetes treatment",
         year_start=2020,

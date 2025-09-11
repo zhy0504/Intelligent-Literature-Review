@@ -62,16 +62,46 @@ if (-not (Test-Path "requirements.txt")) {
     exit 1
 }
 
+# Check for existing cache
+$cacheFile = ".system_cache\environment_check.json"
+$useCache = $false
+$skipDependencyCheck = $false
+$cacheAsked = $false
+
+if (Test-Path $cacheFile) {
+    try {
+        $cacheContent = Get-Content $cacheFile -Raw | ConvertFrom-Json
+        $cacheTime = [DateTime]$cacheContent.timestamp
+        $timeDiff = (Get-Date) - $cacheTime
+        
+        if ($timeDiff.TotalSeconds -lt 86400) {  # 24 hours
+            Write-Host "[INFO] Found environment check cache (Time: $($cacheTime.ToString('yyyy-MM-dd HH:mm:ss')))" -ForegroundColor Cyan
+            
+            $response = Read-Host "Use cached results? Default is Yes (Y/n)"
+            $cacheAsked = $true
+            
+            if ($response -eq "" -or $response.ToLower() -eq "y" -or $response.ToLower() -eq "yes") {
+                Write-Host "[INFO] Using cached environment check results" -ForegroundColor Green
+                $useCache = $true
+                $skipDependencyCheck = $true
+            } else {
+                Write-Host "[INFO] Re-running environment check" -ForegroundColor Yellow
+            }
+        }
+    } catch {
+        Write-Host "[WARNING] Failed to read cache file, proceeding with full check" -ForegroundColor Yellow
+    }
+}
+
 # Install dependencies (if needed)
-Write-Host "[INFO] Checking dependencies with progress indicator..." -ForegroundColor Yellow
+if (-not $skipDependencyCheck) {
+    Write-Host "[INFO] Checking dependencies with progress indicator..." -ForegroundColor Yellow
 & "venv\Scripts\python.exe" -c "
-# 美化的依赖包检查
 import sys
 import time
 import re
 
 def parse_requirements():
-    '''动态解析requirements.txt文件'''
     try:
         with open('requirements.txt', 'r', encoding='utf-8') as f:
             lines = f.readlines()
@@ -79,14 +109,11 @@ def parse_requirements():
         packages = {}
         for line in lines:
             line = line.strip()
-            # 跳过注释和空行
             if line.startswith('#') or not line:
                 continue
             
-            # 解析包名 (移除版本要求)
             package_name = re.split(r'[><=!]', line)[0].strip()
             
-            # 特殊映射关系
             import_mapping = {
                 'PyYAML': 'yaml',
                 'python-dateutil': 'dateutil',
@@ -101,7 +128,6 @@ def parse_requirements():
             
         return packages
     except Exception as e:
-        # 如果无法读取requirements.txt，使用基本包列表
         return {
             'requests': 'requests',
             'pandas': 'pandas', 
@@ -120,15 +146,14 @@ print()
 
 def show_progress(current, total, package_name='', status=''):
     percentage = int((current / total) * 100)
-    filled = int(percentage / 5)  # 20个字符的进度条
+    filled = int(percentage / 5)
     bar = '#' * filled + '.' * (20 - filled)
-    # Windows PowerShell优化：使用固定宽度格式避免重叠
     line = f'[{bar}] {percentage:3d}% ({current:2d}/{total:2d}) {package_name:<20} {status:<10}'
     print(f'\r{line:<80}', end='', flush=True)
 
 for package_name, import_name in required_packages.items():
     show_progress(checked_count, total_packages, package_name, 'checking...')
-    time.sleep(0.1)  # 短暂延迟使进度条可见
+    time.sleep(0.1)
     
     try:
         module = __import__(import_name)
@@ -141,7 +166,7 @@ for package_name, import_name in required_packages.items():
         checked_count += 1
         show_progress(checked_count, total_packages, package_name, 'MISSING')
 
-print()  # 换行
+print()
 print()
 
 if missing:
@@ -151,7 +176,6 @@ if missing:
     exit(1)
 else:
     print(f'+ All dependencies checked ({total_packages}/{total_packages})')
-    # 只显示关键包的版本信息
     key_packages = ['requests', 'pandas', 'numpy', 'PyYAML']
     for pkg in key_packages:
         if pkg in version_info:
@@ -160,37 +184,71 @@ else:
         print(f'  + Other {len(version_info) - len(key_packages)} packages installed')
 "
 
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[WARNING] Missing dependencies found, installing..." -ForegroundColor Yellow
-    
-    # 第一次尝试：使用官方PyPI源安装
-    Write-Host "[INFO] Trying to install from official PyPI source..." -ForegroundColor Cyan
-    & "venv\Scripts\python.exe" -m pip install -r requirements.txt --quiet
-    
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "[SUCCESS] Dependencies installed successfully (Official PyPI)" -ForegroundColor Green
-    } else {
-        # 第二次尝试：使用清华大学镜像源
-        Write-Host "[INFO] Official source failed, switching to Tsinghua mirror..." -ForegroundColor Yellow
-        & "venv\Scripts\python.exe" -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn --quiet
+    # 鍙湁鍦ㄤ緷璧栧寘妫�鏌ュけ璐ユ椂鎵嶆墽琛岄暅鍍忔祴閫熷拰瀹夎
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[WARNING] Missing dependencies found, installing with speed test..." -ForegroundColor Yellow
         
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "[SUCCESS] Dependencies installed successfully (Tsinghua Mirror)" -ForegroundColor Green
-        } else {
-            # 第三次尝试：使用阿里云镜像源
-            Write-Host "[INFO] Tsinghua mirror failed, switching to Aliyun mirror..." -ForegroundColor Yellow
-            & "venv\Scripts\python.exe" -m pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com --quiet
+        # Simple mirror speed testing
+        Write-Host "[INFO] Testing mirror speeds to find the fastest source..." -ForegroundColor Cyan
+        
+        $mirrors = @(
+            @{Name="Official PyPI"; Url="https://pypi.org/simple/"; Args=@()},
+            @{Name="Tsinghua TUNA"; Url="https://pypi.tuna.tsinghua.edu.cn/simple"; Args=@("-i", "https://pypi.tuna.tsinghua.edu.cn/simple", "--trusted-host", "pypi.tuna.tsinghua.edu.cn")},
+            @{Name="USTC"; Url="https://pypi.mirrors.ustc.edu.cn/simple"; Args=@("-i", "https://pypi.mirrors.ustc.edu.cn/simple", "--trusted-host", "pypi.mirrors.ustc.edu.cn")},
+            @{Name="Aliyun"; Url="https://mirrors.aliyun.com/pypi/simple"; Args=@("-i", "https://mirrors.aliyun.com/pypi/simple", "--trusted-host", "mirrors.aliyun.com")}
+        )
+        
+        $fastestMirror = $null
+        $fastestTime = [double]::MaxValue
+    
+    foreach ($mirror in $mirrors) {
+        Write-Host "  Testing $($mirror.Name)..." -NoNewline
+        
+        try {
+            $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+            $response = Invoke-WebRequest -Uri $mirror.Url -Method Head -TimeoutSec 5 -ErrorAction Stop
+            $stopwatch.Stop()
             
-            if ($LASTEXITCODE -eq 0) {
-                Write-Host "[SUCCESS] Dependencies installed successfully (Aliyun Mirror)" -ForegroundColor Green
+            if ($response -and ($response.StatusCode -eq 200 -or $response.StatusCode -eq 301 -or $response.StatusCode -eq 302)) {
+                $responseTime = $stopwatch.ElapsedMilliseconds
+                Write-Host " ${responseTime}ms" -ForegroundColor Green
+                
+                if ($responseTime -lt $fastestTime) {
+                    $fastestTime = $responseTime
+                    $fastestMirror = $mirror
+                }
             } else {
-                Write-Host "[ERROR] All installation sources failed" -ForegroundColor Red
-                Write-Host "[HELP] Please check network connection or install manually: pip install -r requirements.txt" -ForegroundColor Cyan
-                Read-Host "Press Enter to exit"
-                exit 1
+                Write-Host " Failed" -ForegroundColor Red
             }
+        } catch {
+            Write-Host " Timeout/Error" -ForegroundColor Red
         }
     }
+    
+    if ($fastestMirror) {
+        Write-Host "[SUCCESS] Fastest mirror: $($fastestMirror.Name) (${fastestTime}ms)" -ForegroundColor Green
+        Write-Host "[INFO] Installing dependencies with progress display..." -ForegroundColor Cyan
+        
+        $pipPath = "venv\Scripts\pip.exe"
+        $installArgs = @("install", "-r", "requirements.txt", "--progress-bar", "on", "--no-warn-script-location") + $fastestMirror.Args
+        
+        & $pipPath $installArgs
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "[SUCCESS] Dependencies installed successfully from $($fastestMirror.Name)" -ForegroundColor Green
+        } else {
+            Write-Host "[ERROR] Installation failed" -ForegroundColor Red
+            Read-Host "Press Enter to exit"
+            exit 1
+        }
+        } else {
+            Write-Host "[ERROR] All mirrors are unreachable" -ForegroundColor Red
+            Read-Host "Press Enter to exit"
+            exit 1
+        }
+    }
+} else {
+    Write-Host "[INFO] Skipping dependency check and mirror testing (using cache)" -ForegroundColor Green
 }
 
 # Show current Python path
@@ -200,6 +258,21 @@ Write-Host "[INFO] Current Python path:" -ForegroundColor Cyan
 # Start system
 Write-Host ""
 Write-Host "[INFO] Starting Smart Literature System..." -ForegroundColor Green
-& "venv\Scripts\python.exe" start.py $args
+
+# Pass appropriate arguments based on cache usage and whether cache was asked
+if ($useCache) {
+    # Tell Python script that we already checked cache and user chose to use it
+    $env:PS_CACHE_USED = "true"
+    $env:PS_CACHE_ASKED = "true"
+} elseif ($cacheAsked) {
+    # Tell Python script that we asked about cache but user chose not to use it
+    $env:PS_CACHE_ASKED = "true"
+}
+
+& "venv\Scripts\python.exe" src\start.py $args
+
+# Clean up environment variables
+Remove-Item env:PS_CACHE_USED -ErrorAction SilentlyContinue
+Remove-Item env:PS_CACHE_ASKED -ErrorAction SilentlyContinue
 
 Read-Host "Press Enter to exit"
