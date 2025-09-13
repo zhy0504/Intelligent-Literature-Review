@@ -194,7 +194,8 @@ class IntentAnalyzer:
     CONFIG_CACHE_FILE = "ai_model_cache.json"
     
     def __init__(self, config_name: str = None, interactive: bool = True, 
-                 enable_cache: bool = True, enable_async: bool = True):
+                 enable_cache: bool = True, enable_async: bool = True, 
+                 validate_cache: bool = True):
         """
         初始化意图分析器
         
@@ -203,6 +204,7 @@ class IntentAnalyzer:
             interactive: 是否交互式选择模型和参数
             enable_cache: 是否启用意图分析缓存
             enable_async: 是否启用异步处理能力
+            validate_cache: 是否验证缓存模型的有效性
         """
         # 使用配置管理器池避免重复初始化
         self.config_pool = ConfigManagerPool()
@@ -213,6 +215,7 @@ class IntentAnalyzer:
         self.interactive = interactive
         self.enable_cache = enable_cache
         self.enable_async = enable_async
+        self.validate_cache = validate_cache  # 添加缓存验证控制参数
         self.model_id = None
         self.model_parameters = {
             "temperature": 0.1, 
@@ -288,28 +291,133 @@ class IntentAnalyzer:
             )
             self._save_config_cache(new_config)
         else:
-            print("[FAIL] 无法获取可用模型")
-            raise RuntimeError("无法获取可用的AI模型")
+            print("\n" + "="*60)
+            print("[ERROR] AI节点连接失败")
+            print("="*60)
+            print("无法从远端获取AI模型列表，这通常表示：")
+            print("1. AI服务配置可能有误（API密钥、端点URL等）")
+            print("2. 网络连接问题或服务不可用")
+            print("3. API配额已用完或权限不足")
+            print("\n请检查您的AI配置文件 (ai_config.yaml) 并确保：")
+            print("- API密钥正确且有效")
+            print("- 端点URL正确") 
+            print("- 网络连接正常")
+            print("="*60)
+            print("\n按任意键退出程序...")
+            try:
+                input()
+            except (EOFError, KeyboardInterrupt):
+                pass
+            import sys
+            sys.exit(1)
     
     def _load_cached_config(self) -> Optional[AIModelConfig]:
-        """加载缓存的AI配置"""
+        """加载缓存的AI配置并验证有效性"""
         if os.path.exists(self.CONFIG_CACHE_FILE):
             try:
                 with open(self.CONFIG_CACHE_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     if data.get('config_name') == self.config.name:
-                        return AIModelConfig.from_dict(data)
+                        # 检查缓存时间（默认7天过期）
+                        cached_at = data.get('cached_at', 0)
+                        cache_age_days = (time.time() - cached_at) / (24 * 3600)
+                        
+                        if cache_age_days > 7:
+                            print(f"[INFO] 缓存已过期 ({cache_age_days:.1f}天)，将重新获取模型")
+                            os.remove(self.CONFIG_CACHE_FILE)
+                            return None
+                        
+                        # 创建AIModelConfig对象时过滤掉时间戳字段
+                        config_data = {k: v for k, v in data.items() if k != 'cached_at'}
+                        cached_config = AIModelConfig.from_dict(config_data)
+                        
+                        # 根据配置决定是否验证缓存模型的有效性
+                        if self.validate_cache:
+                            if self._validate_cached_model(cached_config):
+                                print(f"[OK] 缓存模型验证通过 (缓存时间: {cache_age_days:.1f}天)")
+                                return cached_config
+                            else:
+                                print(f"[WARN] 缓存模型 {cached_config.model_id} 已失效，将重新获取")
+                                # 删除无效的缓存文件
+                                os.remove(self.CONFIG_CACHE_FILE)
+                                return None
+                        else:
+                            print(f"[INFO] 跳过缓存验证，直接使用缓存模型 {cached_config.model_id} (缓存时间: {cache_age_days:.1f}天)")
+                            return cached_config
             except Exception as e:
                 print(f"加载配置缓存失败: {e}")
+                # 删除损坏的缓存文件
+                try:
+                    os.remove(self.CONFIG_CACHE_FILE)
+                except:
+                    pass
         return None
+    
+    def _validate_cached_model(self, cached_config: AIModelConfig) -> bool:
+        """验证缓存模型是否仍然有效"""
+        try:
+            print(f"[VALIDATE] 验证缓存模型 {cached_config.model_id} 的有效性...")
+            
+            # 1. 首先检查模型是否还在可用模型列表中
+            available_models = self.adapter.get_available_models()
+            if not available_models:
+                print("[VALIDATE] 无法获取模型列表，跳过缓存验证")
+                return False
+            
+            # 检查模型ID是否在可用列表中
+            cached_model_available = any(
+                model.id == cached_config.model_id for model in available_models
+            )
+            
+            if not cached_model_available:
+                print(f"[VALIDATE] 模型 {cached_config.model_id} 不在可用模型列表中")
+                return False
+            
+            print(f"[VALIDATE] 模型 {cached_config.model_id} 在可用列表中，跳过API测试以节省成本")
+            return True
+            
+            # 注释掉的代码：如果需要更严格的验证，可以启用实际的API调用测试
+            # 但这会产生API调用成本，建议只在必要时启用
+            """
+            # 2. 发送一个简单的测试请求验证模型是否真正可用
+            test_messages = [ChatMessage(role="user", content="测试")]
+            test_params = {
+                "temperature": 0.1,
+                "max_tokens": 10  # 限制token数量以减少成本
+            }
+            
+            # 设置较短的超时时间进行快速验证
+            response = self.adapter.send_message(
+                test_messages, 
+                cached_config.model_id, 
+                test_params
+            )
+            
+            # 检查响应是否有效
+            if response and len(str(response).strip()) > 0:
+                print(f"[VALIDATE] 模型 {cached_config.model_id} 验证成功")
+                return True
+            else:
+                print(f"[VALIDATE] 模型 {cached_config.model_id} 响应无效")
+                return False
+            """
+                
+        except Exception as e:
+            print(f"[VALIDATE] 模型验证失败: {e}")
+            return False
     
     def _save_config_cache(self, model_config: AIModelConfig):
         """保存AI配置到缓存"""
         try:
             # 确保stream参数始终为True
             model_config.parameters['stream'] = True
+            
+            # 添加缓存时间戳
+            cache_data = model_config.to_dict()
+            cache_data['cached_at'] = time.time()  # 添加缓存时间戳
+            
             with open(self.CONFIG_CACHE_FILE, 'w', encoding='utf-8') as f:
-                json.dump(model_config.to_dict(), f, ensure_ascii=False, indent=2)
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"保存配置缓存失败: {e}")
     
@@ -376,10 +484,28 @@ class IntentAnalyzer:
         # 选择模型
         self.model_id = self._get_default_model()
         if not self.model_id:
-            print("[WARN]  使用默认模型")
+            print("[WARN]  重试获取模型")
             self.model_id = self._get_default_model()
             if not self.model_id:
-                raise RuntimeError("无法获取可用模型")
+                print("\n" + "="*60)
+                print("[ERROR] AI节点连接失败")
+                print("="*60)
+                print("无法从远端获取AI模型列表，这通常表示：")
+                print("1. AI服务配置可能有误（API密钥、端点URL等）")
+                print("2. 网络连接问题或服务不可用")
+                print("3. API配额已用完或权限不足")
+                print("\n请检查您的AI配置文件 (ai_config.yaml) 并确保：")
+                print("- API密钥正确且有效")
+                print("- 端点URL正确") 
+                print("- 网络连接正常")
+                print("="*60)
+                print("\n按任意键退出程序...")
+                try:
+                    input()
+                except (EOFError, KeyboardInterrupt):
+                    pass
+                import sys
+                sys.exit(1)
         
         # 询问是否配置参数
         print(f"\n当前模型: {self.model_id}")
@@ -485,7 +611,8 @@ class IntentAnalyzer:
                     return selected_model.id
                     
         except Exception as e:
-            print(f"[FAIL] 获取端点模型失败: {e}")
+            print(f"\n[ERROR] 获取AI模型失败: {e}")
+            print("这通常表示AI服务连接问题，请检查您的AI配置")
             return None
     
     def analyze_intent(self, user_input: str) -> SearchCriteria:

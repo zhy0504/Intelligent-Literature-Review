@@ -8,6 +8,7 @@
 import pandas as pd
 import json
 import os
+import pickle  # 添加pickle用于缓存
 from typing import List, Dict, Optional, Tuple
 from intent_analyzer import SearchCriteria
 import re
@@ -137,8 +138,8 @@ class LiteratureFilter:
         self.zky_data = self._load_zky_data_optimized()
         self.jcr_data = self._load_jcr_data_optimized()
         
-        # 创建ISSN到期刊信息的映射
-        self.issn_to_journal_info = self._build_journal_mapping_optimized()
+        # 创建ISSN到期刊信息的映射（支持缓存）
+        self.issn_to_journal_info = self._load_or_build_journal_mapping()
         
         print(f"已加载中科院数据: {len(self.zky_data)} 条记录")
         print(f"已加载JCR数据: {len(self.jcr_data)} 条记录")
@@ -257,23 +258,30 @@ class LiteratureFilter:
         start_time = time.time()
         mapping = {}
         
+        print("[INFO] 开始构建期刊映射表...")
+        
         # 并行处理中科院数据
         if not self.zky_data.empty:
+            print(f"[INFO] 处理中科院数据 ({len(self.zky_data)} 条记录)...")
             zky_mapping = self._process_dataframe_parallel(self.zky_data, 'zky')
             mapping.update(zky_mapping)
+            print(f"[INFO] 中科院数据处理完成，生成 {len(zky_mapping)} 个映射条目")
         
         # 并行处理JCR数据
         if not self.jcr_data.empty:
+            print(f"[INFO] 处理JCR数据 ({len(self.jcr_data)} 条记录)...")
             jcr_mapping = self._process_dataframe_parallel(self.jcr_data, 'jcr')
             # 合并信息，不覆盖已有数据
+            print(f"[INFO] 合并JCR数据到映射表...")
             for issn, info in jcr_mapping.items():
                 if issn in mapping:
                     mapping[issn].update({k: v for k, v in info.items() if v is not None})
                 else:
                     mapping[issn] = info
+            print(f"[INFO] JCR数据处理完成，生成 {len(jcr_mapping)} 个映射条目")
         
         build_time = time.time() - start_time
-        print(f"期刊映射构建完成，耗时: {build_time:.2f}秒")
+        print(f"[OK] 期刊映射构建完成，总计 {len(mapping)} 个映射条目，耗时: {build_time:.2f}秒")
         
         return mapping
     
@@ -306,40 +314,221 @@ class LiteratureFilter:
         return mapping
     
     def _process_chunk(self, df: pd.DataFrame, data_type: str) -> Dict[str, Dict]:
-        """处理数据块"""
+        """处理数据块 - 完全向量化版本"""
         mapping = {}
         
-        for _, row in df.iterrows():
-            issn = str(row.get('ISSN', '')).strip()
-            eissn = str(row.get('EISSN', '')).strip()
+        if data_type == 'zky':
+            # 处理中科院数据
+            if 'ISSN' in df.columns:
+                issns = df['ISSN'].astype(str).str.strip()
+                cas_zones = df['中科院分区'] if '中科院分区' in df.columns else None
+                
+                # 过滤有效的ISSN
+                valid_mask = (issns != '') & (issns != 'nan') & issns.notna()
+                valid_issns = issns[valid_mask]
+                
+                if cas_zones is not None:
+                    valid_cas_zones = cas_zones[valid_mask]
+                    for issn, cas_zone in zip(valid_issns, valid_cas_zones):
+                        mapping[issn] = {
+                            'cas_zone': cas_zone if pd.notna(cas_zone) else None,
+                            'impact_factor': None,
+                            'jcr_quartile': None
+                        }
+                else:
+                    for issn in valid_issns:
+                        mapping[issn] = {
+                            'cas_zone': None,
+                            'impact_factor': None,
+                            'jcr_quartile': None
+                        }
             
-            if data_type == 'zky':
-                cas_zone = row.get('中科院分区')
-                journal_info = {
-                    'cas_zone': cas_zone if pd.notna(cas_zone) else None,
-                    'impact_factor': None,
-                    'jcr_quartile': None
-                }
-            else:  # jcr
-                impact_factor = row.get('影响因子')
-                jcr_quartile = row.get('JCR分区')
-                journal_info = {
-                    'cas_zone': None,
-                    'impact_factor': impact_factor if pd.notna(impact_factor) else None,
-                    'jcr_quartile': jcr_quartile if pd.notna(jcr_quartile) else None
-                }
+            # 处理EISSN
+            if 'EISSN' in df.columns:
+                eissns = df['EISSN'].astype(str).str.strip()
+                cas_zones = df['中科院分区'] if '中科院分区' in df.columns else None
+                
+                valid_mask = (eissns != '') & (eissns != 'nan') & eissns.notna()
+                valid_eissns = eissns[valid_mask]
+                
+                if cas_zones is not None:
+                    valid_cas_zones = cas_zones[valid_mask]
+                    for eissn, cas_zone in zip(valid_eissns, valid_cas_zones):
+                        mapping[eissn] = {
+                            'cas_zone': cas_zone if pd.notna(cas_zone) else None,
+                            'impact_factor': None,
+                            'jcr_quartile': None
+                        }
+                else:
+                    for eissn in valid_eissns:
+                        mapping[eissn] = {
+                            'cas_zone': None,
+                            'impact_factor': None,
+                            'jcr_quartile': None
+                        }
+                        
+        else:  # jcr数据
+            # 处理JCR数据
+            if 'ISSN' in df.columns:
+                issns = df['ISSN'].astype(str).str.strip()
+                impact_factors = df['影响因子'] if '影响因子' in df.columns else None
+                jcr_quartiles = df['JCR分区'] if 'JCR分区' in df.columns else None
+                
+                valid_mask = (issns != '') & (issns != 'nan') & issns.notna()
+                valid_issns = issns[valid_mask]
+                
+                if impact_factors is not None and jcr_quartiles is not None:
+                    valid_ifs = impact_factors[valid_mask]
+                    valid_quartiles = jcr_quartiles[valid_mask]
+                    for issn, impact_factor, jcr_quartile in zip(valid_issns, valid_ifs, valid_quartiles):
+                        mapping[issn] = {
+                            'cas_zone': None,
+                            'impact_factor': impact_factor if pd.notna(impact_factor) else None,
+                            'jcr_quartile': jcr_quartile if pd.notna(jcr_quartile) else None
+                        }
+                else:
+                    for issn in valid_issns:
+                        mapping[issn] = {
+                            'cas_zone': None,
+                            'impact_factor': None,
+                            'jcr_quartile': None
+                        }
             
-            # 添加ISSN和EISSN到映射
-            if issn and issn != 'nan':
-                mapping[issn] = journal_info.copy()
-            if eissn and eissn != 'nan':
-                mapping[eissn] = journal_info.copy()
+            # 处理EISSN
+            if 'EISSN' in df.columns:
+                eissns = df['EISSN'].astype(str).str.strip()
+                impact_factors = df['影响因子'] if '影响因子' in df.columns else None
+                jcr_quartiles = df['JCR分区'] if 'JCR分区' in df.columns else None
+                
+                valid_mask = (eissns != '') & (eissns != 'nan') & eissns.notna()
+                valid_eissns = eissns[valid_mask]
+                
+                if impact_factors is not None and jcr_quartiles is not None:
+                    valid_ifs = impact_factors[valid_mask]
+                    valid_quartiles = jcr_quartiles[valid_mask]
+                    for eissn, impact_factor, jcr_quartile in zip(valid_eissns, valid_ifs, valid_quartiles):
+                        mapping[eissn] = {
+                            'cas_zone': None,
+                            'impact_factor': impact_factor if pd.notna(impact_factor) else None,
+                            'jcr_quartile': jcr_quartile if pd.notna(jcr_quartile) else None
+                        }
+                else:
+                    for eissn in valid_eissns:
+                        mapping[eissn] = {
+                            'cas_zone': None,
+                            'impact_factor': None,
+                            'jcr_quartile': None
+                        }
         
         return mapping
     
     def _build_journal_mapping(self) -> Dict[str, Dict]:
         """兼容性方法"""
         return self._build_journal_mapping_optimized()
+    
+    def _get_mapping_cache_path(self) -> str:
+        """获取期刊映射表缓存文件路径"""
+        return "cache/journal_mapping_cache.pkl"
+    
+    def _get_data_files_hash(self) -> str:
+        """计算数据文件的哈希值，用于检测文件是否有更新"""
+        hash_obj = hashlib.md5()
+        
+        # 计算中科院数据文件的哈希
+        if os.path.exists(self.zky_data_path):
+            with open(self.zky_data_path, 'rb') as f:
+                hash_obj.update(f.read())
+        
+        # 计算JCR数据文件的哈希
+        if os.path.exists(self.jcr_data_path):
+            with open(self.jcr_data_path, 'rb') as f:
+                hash_obj.update(f.read())
+        
+        return hash_obj.hexdigest()
+    
+    def _load_mapping_cache(self) -> Optional[Dict[str, Dict]]:
+        """加载期刊映射表缓存"""
+        cache_path = self._get_mapping_cache_path()
+        
+        if not os.path.exists(cache_path):
+            return None
+        
+        try:
+            with open(cache_path, 'rb') as f:
+                cache_data = pickle.load(f)
+            
+            # 检查缓存的数据版本
+            current_hash = self._get_data_files_hash()
+            cached_hash = cache_data.get('data_hash', '')
+            cached_time = cache_data.get('cached_at', 0)
+            
+            # 检查缓存是否过期（90天，3个月）
+            cache_age_days = (time.time() - cached_time) / (24 * 3600)
+            
+            if current_hash != cached_hash:
+                print(f"[CACHE] 数据文件已更新，缓存失效")
+                return None
+            elif cache_age_days > 90:
+                print(f"[CACHE] 缓存已过期 ({cache_age_days:.1f}天)，将重新构建")
+                return None
+            else:
+                print(f"[CACHE] 使用期刊映射表缓存 (缓存时间: {cache_age_days:.1f}天)")
+                return cache_data['mapping']
+                
+        except Exception as e:
+            print(f"[CACHE] 加载缓存失败: {e}")
+            return None
+    
+    def _save_mapping_cache(self, mapping: Dict[str, Dict]):
+        """保存期刊映射表缓存"""
+        cache_path = self._get_mapping_cache_path()
+        
+        # 确保缓存目录存在
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        
+        try:
+            cache_data = {
+                'mapping': mapping,
+                'data_hash': self._get_data_files_hash(),
+                'cached_at': time.time(),
+                'version': '1.0'
+            }
+            
+            with open(cache_path, 'wb') as f:
+                pickle.dump(cache_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+                
+            print(f"[CACHE] 期刊映射表缓存已保存")
+            
+        except Exception as e:
+            print(f"[CACHE] 保存缓存失败: {e}")
+    
+    def _load_or_build_journal_mapping(self) -> Dict[str, Dict]:
+        """加载或构建期刊映射表（支持缓存）"""
+        # 尝试加载缓存
+        cached_mapping = self._load_mapping_cache()
+        if cached_mapping is not None:
+            return cached_mapping
+        
+        # 缓存不存在或失效，重新构建
+        print("[INFO] 构建新的期刊映射表...")
+        mapping = self._build_journal_mapping_optimized()
+        
+        # 保存到缓存
+        self._save_mapping_cache(mapping)
+        
+        return mapping
+    
+    def clear_mapping_cache(self):
+        """清理期刊映射表缓存"""
+        cache_path = self._get_mapping_cache_path()
+        if os.path.exists(cache_path):
+            try:
+                os.remove(cache_path)
+                print("[CACHE] 期刊映射表缓存已清理")
+            except Exception as e:
+                print(f"[CACHE] 清理缓存失败: {e}")
+        else:
+            print("[CACHE] 缓存文件不存在")
     
     def get_journal_info_optimized(self, issn: str, eissn: str) -> Dict:
         """

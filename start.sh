@@ -280,8 +280,15 @@ elif [ "$CACHE_ASKED" = true ]; then
     export PS_CACHE_ASKED="true"
 fi
 
+# Skip banner since shell script already showed it
+export PS_SKIP_BANNER="true"
+
 venv/bin/python src/start.py "$@"
 
 # Clean up environment variables
 unset PS_CACHE_USED
 unset PS_CACHE_ASKED
+unset PS_SKIP_BANNER
+
+# Wait for user input like PowerShell version
+read -p "Press Enter to exit..."

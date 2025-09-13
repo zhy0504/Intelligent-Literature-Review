@@ -1169,16 +1169,16 @@ class IntelligentLiteratureSystem:
         
         progress_tracker.update("文献检索", f"完成 (获取 {len(self.filtered_results)} 篇)")
         
+        # 立即保存筛选后的文献为CSV格式（在用户确认之前）
+        print("\n保存筛选后的文献结果...")
+        self._save_literature_csv(user_query, self.filtered_results, "筛选结果")
+        
         # 用户确认断点：是否继续生成综述大纲
         if not self._ask_user_continue():
             print("返回到用户输入...")
             if self.state_manager:
                 self.state_manager.clear_state()
             return {"success": False, "restart": True}
-        
-        # 用户确认继续后，保存筛选后的文献为CSV格式
-        print("\n保存筛选后的文献结果...")
-        self._save_literature_csv(user_query, self.filtered_results, "筛选结果")
         
         # 第3步：生成综述大纲
         print("\n第3步：生成综述大纲...")
@@ -2021,9 +2021,6 @@ async def main_async():
     
     try:
         # 初始化系统
-        print("智能文献检索与综述生成系统 v2.0")
-        print("=" * 60)
-        
         system = IntelligentLiteratureSystem(
             ai_config_name=args.ai_config,
             interactive_mode=not args.non_interactive_ai,

@@ -253,7 +253,8 @@ class ReviewOutlineGenerator:
                     return selected_model.id
                     
         except Exception as e:
-            print(f"[FAIL] 获取端点模型失败: {e}")
+            print(f"\n[ERROR] 获取AI模型失败: {e}")
+            print("这通常表示AI服务连接问题，请检查您的AI配置")
             return None
     
     def generate_outline_from_json(self, json_file_path: str, research_topic: str) -> str:

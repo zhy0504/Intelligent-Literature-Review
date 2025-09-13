@@ -397,7 +397,7 @@ def install_dependencies(system_cache: SystemCache = None) -> bool:
             str(venv_python), "-m", "pip", "install", "--upgrade", "pip"
         ], capture_output=True, text=True, timeout=120)
         
-        # 尝试安装依赖包
+        # 尝试安装依赖包（官方源）
         print_status("安装依赖包（官方源）...")
         result = subprocess.run([
             str(venv_pip), "install", "-r", str(requirements_file)
@@ -407,17 +407,28 @@ def install_dependencies(system_cache: SystemCache = None) -> bool:
             print_status("依赖包安装完成", "OK")
             return True
         
-        # 使用镜像源重试
-        print_status("使用清华镜像源重新安装...", "INFO")
-        result = subprocess.run([
-            str(venv_pip), "install", "-r", str(requirements_file),
-            "-i", "https://pypi.tuna.tsinghua.edu.cn/simple",
-            "--trusted-host", "pypi.tuna.tsinghua.edu.cn"
-        ], capture_output=True, text=True, timeout=300)
+        # 使用多个镜像源重试
+        mirror_sources = [
+            ("清华镜像", "https://pypi.tuna.tsinghua.edu.cn/simple", "pypi.tuna.tsinghua.edu.cn"),
+            ("中科大镜像", "https://pypi.mirrors.ustc.edu.cn/simple", "pypi.mirrors.ustc.edu.cn"),
+            ("阿里云镜像", "https://mirrors.aliyun.com/pypi/simple", "mirrors.aliyun.com")
+        ]
         
-        if result.returncode == 0:
-            print_status("依赖包安装完成（清华镜像）", "OK")
-            return True
+        for mirror_name, mirror_url, trusted_host in mirror_sources:
+            print_status(f"使用{mirror_name}重新安装...", "INFO")
+            result = subprocess.run([
+                str(venv_pip), "install", "-r", str(requirements_file),
+                "-i", mirror_url,
+                "--trusted-host", trusted_host
+            ], capture_output=True, text=True, timeout=300)
+            
+            if result.returncode == 0:
+                print_status(f"依赖包安装完成（{mirror_name}）", "OK")
+                return True
+            else:
+                print_status(f"{mirror_name}安装失败，尝试下一个镜像源...", "WARNING")
+                if result.stderr:
+                    print_status(f"错误信息: {result.stderr[:100]}...", "INFO")
         
         error_msg = "依赖包安装失败"
         solution = "请检查网络连接，或手动执行：pip install -r requirements.txt"
@@ -968,8 +979,10 @@ def main():
     except:
         args = argparse.Namespace(command=None, check_only=False, force_check=False, help=False)
     
-    # 打印启动横幅
-    print_startup_banner()
+    # 打印启动横幅（如果没有被PowerShell脚本禁用）
+    skip_banner = os.environ.get('PS_SKIP_BANNER', '').lower() == 'true'
+    if not skip_banner:
+        print_startup_banner()
     
     if args.help:
         show_help()

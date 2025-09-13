@@ -1,5 +1,15 @@
 # Smart Literature System PowerShell Startup Script
 
+# Fix encoding issues for Windows Chinese systems
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[System.Console]::InputEncoding = [System.Text.Encoding]::UTF8
+
+# Set PowerShell to use UTF-8 for web requests and file operations
+$PSDefaultParameterValues['*:Encoding'] = 'utf8'
+$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
+$PSDefaultParameterValues['Set-Content:Encoding'] = 'utf8'
+
 Write-Host ""
 Write-Host "===========================================================================" -ForegroundColor Cyan
 Write-Host ""
@@ -70,7 +80,8 @@ $cacheAsked = $false
 
 if (Test-Path $cacheFile) {
     try {
-        $cacheContent = Get-Content $cacheFile -Raw | ConvertFrom-Json
+        # Use UTF-8 encoding when reading cache file
+        $cacheContent = Get-Content $cacheFile -Raw -Encoding UTF8 | ConvertFrom-Json
         $cacheTime = [DateTime]$cacheContent.timestamp
         $timeDiff = (Get-Date) - $cacheTime
         
@@ -206,7 +217,10 @@ else:
         
         try {
             $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-            $response = Invoke-WebRequest -Uri $mirror.Url -Method Head -TimeoutSec 5 -ErrorAction Stop
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $ProgressPreference = 'SilentlyContinue'
+            
+            $response = Invoke-WebRequest -Uri $mirror.Url -Method Head -TimeoutSec 5 -ErrorAction Stop -UseBasicParsing
             $stopwatch.Stop()
             
             if ($response -and ($response.StatusCode -eq 200 -or $response.StatusCode -eq 301 -or $response.StatusCode -eq 302)) {
@@ -221,13 +235,14 @@ else:
                 Write-Host " Failed" -ForegroundColor Red
             }
         } catch {
+            if ($stopwatch) { $stopwatch.Stop() }
             Write-Host " Timeout/Error" -ForegroundColor Red
         }
     }
     
     if ($fastestMirror) {
         Write-Host "[SUCCESS] Fastest mirror: $($fastestMirror.Name) (${fastestTime}ms)" -ForegroundColor Green
-        Write-Host "[INFO] Installing dependencies with progress display..." -ForegroundColor Cyan
+        Write-Host "[INFO] Installing dependencies..." -ForegroundColor Cyan
         
         $pipPath = "venv\Scripts\pip.exe"
         $installArgs = @("install", "-r", "requirements.txt", "--progress-bar", "on", "--no-warn-script-location") + $fastestMirror.Args
@@ -242,7 +257,12 @@ else:
             exit 1
         }
         } else {
+            Write-Host "[DEBUG] No fastest mirror found after testing all mirrors!" -ForegroundColor Gray
             Write-Host "[ERROR] All mirrors are unreachable" -ForegroundColor Red
+            Write-Host "[DEBUG] Tested mirrors:" -ForegroundColor Gray
+            foreach ($mirror in $mirrors) {
+                Write-Host "[DEBUG]   - $($mirror.Name): $($mirror.Url)" -ForegroundColor Gray
+            }
             Read-Host "Press Enter to exit"
             exit 1
         }
@@ -269,10 +289,14 @@ if ($useCache) {
     $env:PS_CACHE_ASKED = "true"
 }
 
+# Skip banner since PowerShell script already showed it
+$env:PS_SKIP_BANNER = "true"
+
 & "venv\Scripts\python.exe" src\start.py $args
 
 # Clean up environment variables
 Remove-Item env:PS_CACHE_USED -ErrorAction SilentlyContinue
 Remove-Item env:PS_CACHE_ASKED -ErrorAction SilentlyContinue
+Remove-Item env:PS_SKIP_BANNER -ErrorAction SilentlyContinue
 
 Read-Host "Press Enter to exit"

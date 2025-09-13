@@ -412,7 +412,7 @@ class OpenAIAdapter(BaseAIAdapter):
             else:
                 response = self.session.get(
                     f"{self.config.base_url}v1/models",
-                    timeout=self.config.timeout
+                    timeout=15  # 模型获取超时设置为15秒
                 )
                 response.raise_for_status()
                 response_data = response.json()
@@ -456,11 +456,11 @@ class OpenAIAdapter(BaseAIAdapter):
             
             # 按名称排序
             models.sort(key=lambda x: x.name)
-            return models if models else self._get_default_models()
+            return models  # 直接返回实际获取到的模型列表
             
         except Exception as e:
             print(f"获取OpenAI模型列表失败: {e}")
-            return self._get_default_models()
+            return []  # 返回空列表而不是默认模型
     
     def _get_default_models(self) -> List[ModelInfo]:
         """返回默认模型列表"""
@@ -749,7 +749,7 @@ class GeminiAdapter(BaseAIAdapter):
             else:
                 response = self.session.get(
                     api_url,
-                    timeout=self.config.timeout
+                    timeout=15  # 模型获取超时设置为15秒
                 )
                 response.raise_for_status()
                 models_data = response.json()
@@ -784,13 +784,7 @@ class GeminiAdapter(BaseAIAdapter):
             
         except Exception as e:
             print(f"获取Gemini模型列表失败: {e}")
-            # 返回常见的Gemini模型作为备选
-            return [
-                ModelInfo("gemini-2.5-pro", "Gemini 2.5 Pro", "Gemini 2.5 Pro模型", 30720),
-                ModelInfo("gemini-2.5-flash", "Gemini 2.5 Flash", "Gemini 2.5 Flash模型", 16384),
-                ModelInfo("gemini-pro", "Gemini Pro", "Gemini Pro模型", 30720),
-                ModelInfo("gemini-pro-vision", "Gemini Pro Vision", "支持图像的Gemini模型", 16384)
-            ]
+            return []  # 返回空列表而不是默认模型
     
     def get_model_parameters(self, model_id: str) -> Dict[str, Any]:
         """获取Gemini模型参数配置"""
