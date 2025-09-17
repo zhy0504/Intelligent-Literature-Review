@@ -18,23 +18,51 @@ def get_system_info():
     system = platform.system().lower()
     machine = platform.machine().lower()
     
-    # 系统映射
+    # 系统映射 - 支持Windows、macOS和Linux
     system_map = {
         'windows': 'windows',
         'linux': 'linux',
         'darwin': 'macOS'  # macOS
     }
     
-    # 架构映射
-    arch_map = {
-        'x86_64': 'x86_64',
-        'amd64': 'x86_64',
-        'arm64': 'arm64',
-        'aarch64': 'arm64'
-    }
+    os_name = system_map.get(system)
+    if not os_name:
+        raise RuntimeError(f"不支持的操作系统: {system}")
     
-    os_name = system_map.get(system, system)
-    arch = arch_map.get(machine, 'x86_64')  # 默认x86_64
+    # 架构映射 - 根据实际下载链接格式
+    if os_name == 'windows':
+        # Windows使用x86_64命名
+        arch_map = {
+            'x86_64': 'x86_64',
+            'amd64': 'x86_64',
+            'arm64': 'arm64',
+            'aarch64': 'arm64'
+        }
+    elif os_name == 'linux':
+        # Linux使用amd64/arm64命名
+        arch_map = {
+            'x86_64': 'amd64',
+            'amd64': 'amd64', 
+            'arm64': 'arm64',
+            'aarch64': 'arm64'
+        }
+    else:  # macOS
+        # macOS使用x86_64/arm64命名
+        arch_map = {
+            'x86_64': 'x86_64',
+            'amd64': 'x86_64',
+            'arm64': 'arm64', 
+            'aarch64': 'arm64'
+        }
+    
+    arch = arch_map.get(machine)
+    if not arch:
+        # 默认架构
+        if os_name == 'linux':
+            arch = 'amd64'
+        else:  # Windows和macOS
+            arch = 'x86_64'
+        print(f"警告: 未识别的架构 {machine}，使用默认架构 {arch}")
     
     return os_name, arch
 
@@ -53,21 +81,27 @@ def get_latest_pandoc_version():
 def download_pandoc(os_name, arch, version):
     """下载对应系统的Pandoc"""
     
-    # 构建下载URL
+    # 构建下载URL - 根据你提供的正确链接格式
     if os_name == 'windows':
+        # Windows格式: pandoc-3.8-windows-x86_64.zip
         filename = f"pandoc-{version}-windows-{arch}.zip"
         extract_func = extract_zip
     elif os_name == 'macOS':
-        filename = f"pandoc-{version}-{arch}-macOS.tar.gz"
-        extract_func = extract_tar
+        # macOS格式: pandoc-3.8-x86_64-macOS.zip 或 pandoc-3.8-arm64-macOS.zip
+        filename = f"pandoc-{version}-{arch}-macOS.zip"
+        extract_func = extract_zip
     else:  # linux
+        # Linux格式: pandoc-3.8-linux-amd64.tar.gz 或 pandoc-3.8-linux-arm64.tar.gz
         filename = f"pandoc-{version}-linux-{arch}.tar.gz"
         extract_func = extract_tar
     
     base_url = f"https://github.com/jgm/pandoc/releases/download/{version}/{filename}"
     
-    # 询问用户是否使用国内代理加速
     print(f"准备下载 {filename}...")
+    print(f"目标平台: {os_name} {arch}")
+    print()
+    
+    # 询问用户是否使用国内代理加速
     print("是否启用国内代理加速下载？(推荐中国大陆用户选择)")
     print("1. 是 - 使用 gh-proxy.com 代理加速")
     print("2. 否 - 直连GitHub下载")
@@ -86,6 +120,8 @@ def download_pandoc(os_name, arch, version):
         print(f"⚠️  非交互环境，默认启用代理加速")
     
     print(f"下载地址: {url}")
+    print(f"备用地址: {base_url}")
+    print()
     
     def download_with_progress(download_url, desc="下载"):
         """带进度条的下载函数"""

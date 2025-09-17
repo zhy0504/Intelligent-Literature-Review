@@ -769,6 +769,7 @@ class IntentAnalyzer:
 - 将中文医学术语转换为英文和MeSH术语
 - 自动补充相关的同义词和相关术语
 - **重要：基于当前日期({current_year}年{current_month}月)精确计算年份限制**
+  - "近1年"：{current_year-1}-{current_year}年
   - "近年来"或"最近"：{current_year-2}-{current_year}年
   - "近3年"：{current_year-2}-{current_year}年
   - "近5年"：{current_year-4}-{current_year}年
@@ -929,6 +930,20 @@ class IntentAnalyzer:
         year_end = data.get('year_end')
         current_year = datetime.now().year
         
+        # 确保年份是整数类型
+        if year_start is not None:
+            try:
+                year_start = int(year_start)
+            except (ValueError, TypeError):
+                year_start = None
+        
+        if year_end is not None:
+            try:
+                year_end = int(year_end)
+            except (ValueError, TypeError):
+                year_end = None
+        
+        # 验证年份逻辑
         if year_start and year_end:
             if year_start > year_end:
                 # 交换起始和结束年份
@@ -957,7 +972,16 @@ class IntentAnalyzer:
         # 验证分区信息
         cas_zones = data.get('cas_zones', [])
         if isinstance(cas_zones, list):
-            validated['cas_zones'] = [zone for zone in cas_zones if 1 <= zone <= 4]
+            # 确保转换为整数并验证范围
+            validated_cas_zones = []
+            for zone in cas_zones:
+                try:
+                    zone_int = int(zone)
+                    if 1 <= zone_int <= 4:
+                        validated_cas_zones.append(zone_int)
+                except (ValueError, TypeError):
+                    continue
+            validated['cas_zones'] = validated_cas_zones
         else:
             validated['cas_zones'] = []
         

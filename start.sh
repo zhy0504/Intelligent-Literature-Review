@@ -30,6 +30,111 @@ echo ""
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Check system basic components
+check_system_components() {
+    echo "[INFO] Checking system basic components..."
+    
+    local missing_components=()
+    local critical_components=("curl" "python3")
+    local optional_components=("wget" "git" "unzip")
+    
+    # Check critical components
+    for component in "${critical_components[@]}"; do
+        if ! command -v "$component" &> /dev/null; then
+            missing_components+=("$component")
+            echo "[ERROR] Critical component missing: $component"
+        else
+            local version_info=""
+            case "$component" in
+                "curl")
+                    version_info=$(curl --version 2>/dev/null | head -n 1)
+                    ;;
+                "python3")
+                    version_info=$(python3 --version 2>/dev/null)
+                    ;;
+            esac
+            echo "[OK] $component: $version_info"
+        fi
+    done
+    
+    # Check optional components
+    for component in "${optional_components[@]}"; do
+        if ! command -v "$component" &> /dev/null; then
+            echo "[WARNING] Optional component missing: $component"
+            case "$component" in
+                "wget")
+                    echo "  - wget is used as fallback for network operations"
+                    ;;
+                "git")
+                    echo "  - git is used for version control operations"
+                    ;;
+                "unzip")
+                    echo "  - unzip is used for extracting archives"
+                    ;;
+            esac
+        else
+            local version_info=""
+            case "$component" in
+                "wget")
+                    version_info=$(wget --version 2>/dev/null | head -n 1)
+                    ;;
+                "git")
+                    version_info=$(git --version 2>/dev/null)
+                    ;;
+                "unzip")
+                    version_info=$(unzip -v 2>/dev/null | head -n 1)
+                    ;;
+            esac
+            echo "[OK] $component: $version_info"
+        fi
+    done
+    
+    # Show installation instructions for missing critical components
+    if [ ${#missing_components[@]} -gt 0 ]; then
+        echo ""
+        echo "[ERROR] Missing critical components: ${missing_components[*]}"
+        echo ""
+        echo "=== Installation Instructions ==="
+        echo "Ubuntu/Debian:"
+        echo "  sudo apt update"
+        if printf '%s\n' "${missing_components[@]}" | grep -q "curl"; then
+            echo "  sudo apt install curl"
+        fi
+        if printf '%s\n' "${missing_components[@]}" | grep -q "python3"; then
+            echo "  sudo apt install python3 python3-venv python3-pip"
+        fi
+        echo ""
+        echo "CentOS/RHEL/Fedora:"
+        if printf '%s\n' "${missing_components[@]}" | grep -q "curl"; then
+            echo "  sudo yum install curl  # or: sudo dnf install curl"
+        fi
+        if printf '%s\n' "${missing_components[@]}" | grep -q "python3"; then
+            echo "  sudo yum install python3 python3-venv python3-pip  # or: sudo dnf install python3 python3-venv python3-pip"
+        fi
+        echo ""
+        echo "macOS:"
+        if printf '%s\n' "${missing_components[@]}" | grep -q "curl"; then
+            echo "  # curl is usually pre-installed on macOS"
+            echo "  # If missing: brew install curl"
+        fi
+        if printf '%s\n' "${missing_components[@]}" | grep -q "python3"; then
+            echo "  brew install python3"
+        fi
+        echo ""
+        echo "Alpine Linux:"
+        if printf '%s\n' "${missing_components[@]}" | grep -q "curl"; then
+            echo "  apk add curl"
+        fi
+        if printf '%s\n' "${missing_components[@]}" | grep -q "python3"; then
+            echo "  apk add python3 py3-venv py3-pip"
+        fi
+        echo ""
+        return 1
+    fi
+    
+    return 0
+}
+
 # Enhanced Python installation check with diagnostics
 check_python_environment() {
     echo "[INFO] Checking Python environment..."
@@ -77,6 +182,23 @@ check_python_environment() {
         return 1
     fi
     echo "[SUCCESS] Python venv module is available"
+    
+    # Check pip module in system Python
+    echo "[INFO] Checking pip module in system Python..."
+    if ! python3 -m pip --version &> /dev/null; then
+        echo "[WARNING] pip module not available in system Python"
+        echo "[INFO] This may cause issues with virtual environment creation"
+        echo "[HELP] Install pip using your system package manager:"
+        echo "       Ubuntu/Debian: sudo apt install python3-pip"
+        echo "       CentOS/RHEL: sudo yum install python3-pip"
+        echo "       Fedora: sudo dnf install python3-pip"
+        echo "       macOS: pip should be included with Python3"
+        echo "       Or download get-pip.py and run: python3 get-pip.py"
+        echo "[INFO] Continuing anyway - pip will be fixed in virtual environment if needed"
+    else
+        pip_version=$(python3 -m pip --version 2>&1)
+        echo "[SUCCESS] System pip available: $pip_version"
+    fi
     
     return 0
 }
@@ -148,14 +270,26 @@ check_system_environment() {
     return 0
 }
 
-# Run diagnostics
+# Run diagnostics in order: system components first, then Python environment
+echo "[INFO] Starting system diagnostics..."
+
+if ! check_system_components; then
+    echo "[FATAL] Critical system components are missing. Please install them before continuing."
+    exit 1
+fi
+
 if ! check_python_environment; then
+    echo "[FATAL] Python environment check failed."
     exit 1
 fi
 
 if ! check_system_environment; then
+    echo "[FATAL] System environment check failed."
     exit 1
 fi
+
+echo "[SUCCESS] All system checks passed!"
+echo ""
 
 # Enhanced virtual environment creation with detailed error logging
 if [ ! -d "venv" ]; then
@@ -258,12 +392,79 @@ EOF
     fi
 fi
 
-# Check virtual environment Python
-echo "[INFO] Using virtual environment Python..."
+# Check virtual environment Python and pip
+echo "[INFO] Checking virtual environment Python and pip..."
 if [ ! -f "venv/bin/python" ]; then
     echo "[ERROR] Virtual environment Python not found"
     exit 1
 fi
+
+# Check if pip is available in virtual environment
+echo "[INFO] Checking pip in virtual environment..."
+if ! venv/bin/python -m pip --version &> /dev/null; then
+    echo "[WARNING] pip not available in virtual environment"
+    echo "[INFO] Attempting to fix pip in virtual environment..."
+    
+    # Method 1: Try to reinstall pip using ensurepip
+    echo "[FIX] Trying method 1: ensurepip..."
+    if venv/bin/python -m ensurepip --upgrade &> /dev/null; then
+        echo "[SUCCESS] pip installed using ensurepip"
+    else
+        echo "[INFO] ensurepip failed, trying method 2..."
+        
+        # Method 2: Download and install get-pip.py
+        echo "[FIX] Trying method 2: get-pip.py..."
+        
+        # Use curl or wget to download get-pip.py
+        if command -v curl &> /dev/null; then
+            echo "[INFO] Downloading get-pip.py using curl..."
+            if curl -s https://bootstrap.pypa.io/get-pip.py -o get-pip.py; then
+                echo "[INFO] Installing pip using get-pip.py..."
+                if venv/bin/python get-pip.py &> /dev/null; then
+                    echo "[SUCCESS] pip installed using get-pip.py"
+                    rm -f get-pip.py
+                else
+                    echo "[ERROR] Failed to install pip using get-pip.py"
+                    rm -f get-pip.py
+                fi
+            else
+                echo "[ERROR] Failed to download get-pip.py"
+            fi
+        elif command -v wget &> /dev/null; then
+            echo "[INFO] Downloading get-pip.py using wget..."
+            if wget -q https://bootstrap.pypa.io/get-pip.py -O get-pip.py; then
+                echo "[INFO] Installing pip using get-pip.py..."
+                if venv/bin/python get-pip.py &> /dev/null; then
+                    echo "[SUCCESS] pip installed using get-pip.py"
+                    rm -f get-pip.py
+                else
+                    echo "[ERROR] Failed to install pip using get-pip.py"
+                    rm -f get-pip.py
+                fi
+            else
+                echo "[ERROR] Failed to download get-pip.py"
+            fi
+        else
+            echo "[ERROR] No HTTP client available (curl/wget) to download get-pip.py"
+            echo "[MANUAL] You can manually download get-pip.py from https://bootstrap.pypa.io/get-pip.py"
+            echo "[MANUAL] Then run: venv/bin/python get-pip.py"
+        fi
+    fi
+    
+    # Final check
+    if ! venv/bin/python -m pip --version &> /dev/null; then
+        echo "[ERROR] pip is still not available in virtual environment"
+        echo "[HELP] Manual solutions:"
+        echo "1. Recreate virtual environment: rm -rf venv && python3 -m venv venv"
+        echo "2. Install system pip first: sudo apt install python3-pip (Ubuntu/Debian)"
+        echo "3. Use system Python directly instead of virtual environment"
+        exit 1
+    fi
+fi
+
+# Show pip version
+venv_pip_version=$(venv/bin/python -m pip --version 2>&1)
+echo "[SUCCESS] Virtual environment pip: $venv_pip_version"
 
 # Check requirements file
 if [ ! -f "requirements.txt" ]; then
@@ -433,9 +634,28 @@ else:
             echo -n "  Testing $mirror_name..."
             
             start_time=$(date +%s%3N)
-            # Test HTTP response - accept 200, 301, 302 status codes
-            response_code=$(curl -s --head --connect-timeout 5 -w "%{http_code}" "${mirrors[$mirror_name]}" 2>/dev/null | tail -1)
-            if [ $? -eq 0 ] && ([ "$response_code" = "200" ] || [ "$response_code" = "301" ] || [ "$response_code" = "302" ]); then
+            # Test HTTP response with curl or wget fallback
+            response_code=""
+            if command -v curl &> /dev/null; then
+                response_code=$(curl -s --head --connect-timeout 5 -w "%{http_code}" "${mirrors[$mirror_name]}" 2>/dev/null | tail -1)
+                curl_exit_code=$?
+            elif command -v wget &> /dev/null; then
+                # Use wget as fallback
+                wget_output=$(wget --spider --timeout=5 "${mirrors[$mirror_name]}" 2>&1)
+                wget_exit_code=$?
+                if [ $wget_exit_code -eq 0 ]; then
+                    response_code="200"  # Assume success if wget spider succeeds
+                else
+                    response_code="000"  # Indicate failure
+                fi
+                curl_exit_code=$wget_exit_code
+            else
+                echo " No HTTP client available (curl/wget missing)"
+                continue
+            fi
+            
+            # Accept 200, 301, 302 status codes as successful
+            if [ $curl_exit_code -eq 0 ] && ([ "$response_code" = "200" ] || [ "$response_code" = "301" ] || [ "$response_code" = "302" ]); then
                 end_time=$(date +%s%3N)
                 response_time=$((end_time - start_time))
                 echo " ${response_time}ms"
@@ -444,10 +664,10 @@ else:
                     fastest_time=$response_time
                     fastest_mirror="$mirror_name"
                 fi
-            elif [ $? -ne 0 ]; then
+            elif [ $curl_exit_code -ne 0 ]; then
                 echo " Timeout/Error"
             else
-                echo " Failed"
+                echo " Failed (HTTP: $response_code)"
             fi
         done
         
