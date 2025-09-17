@@ -680,7 +680,10 @@ class MedicalReviewGenerator:
             # 格式化响应
             article_content = self.ai_client.format_response(response, self.adapter.config.api_type)
             
-            # 清理AI引导语
+            # 保存原始AI输出到md文件
+            self._save_raw_output(article_content, title or "医学综述")
+            
+            # 清理AI引导语，只保留文章标题开始的内容
             article_content = self._clean_ai_intro(article_content)
             
             # 标准化段落缩进，确保只有两个全角空格
@@ -771,6 +774,10 @@ class MedicalReviewGenerator:
         """
         import re
         
+        # 保存原始内容长度用于调试
+        original_length = len(article_content)
+        print(f"重新编号前内容长度: {original_length} 字符")
+        
         # 1. 提取文章中所有的引用标记，支持单个和多个引用
         # 匹配格式: [数字] 或 [数字, 数字, ...] 
         citation_pattern = r'\[([0-9, ]+)\]'
@@ -832,14 +839,30 @@ class MedicalReviewGenerator:
             
             # 重新组合多个引用
             if not new_numbers:
-                # 如果所有引用都无效，返回空字符串或警告
-                return "[无效引用]"
+                # 如果所有引用都无效，保留原始引用而不是删除
+                print(f"警告: 引用 [{citation_content}] 无效，保留原样")
+                return f"[{citation_content}]"
             elif len(new_numbers) == 1:
                 return f"[{new_numbers[0]}]"
             else:
                 return f"[{', '.join(new_numbers)}]"
         
+        # 保存替换前的内容片段用于调试
+        test_section = article_content[2000:3000] if len(article_content) > 3000 else article_content[:1000]
+        print(f"替换前内容片段: {test_section[:100]}...")
+        
         updated_content = re.sub(citation_pattern, replace_multi_citation, article_content)
+        
+        # 检查替换后的内容长度
+        updated_length = len(updated_content)
+        print(f"重新编号后内容长度: {updated_length} 字符 (变化: {updated_length - original_length})")
+        
+        # 如果内容长度显著减少，输出警告
+        if updated_length < original_length * 0.8:
+            print(f"警告: 内容长度显著减少 {original_length} -> {updated_length}，可能存在问题")
+            # 保存替换后的内容片段用于调试
+            test_section_after = updated_content[2000:3000] if len(updated_content) > 3000 else updated_content[:1000]
+            print(f"替换后内容片段: {test_section_after[:100]}...")
         
         # 5. 生成重新排序的参考文献列表（只包含被引用的）
         cited_literature = [literature[idx] for idx in cited_indices]
@@ -884,94 +907,78 @@ class MedicalReviewGenerator:
         
         return '\n'.join(references)
     
+    def _save_raw_output(self, raw_content: str, title: str):
+        """
+        保存AI的原始输出到md文件
+        
+        Args:
+            raw_content: AI的原始输出内容
+            title: 文章标题
+        """
+        try:
+            # 获取项目根目录
+            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            raw_docs_dir = os.path.join(project_root, "综述AI返回原始数据（用于核对）")
+            
+            # 确保原始文档目录存在
+            os.makedirs(raw_docs_dir, exist_ok=True)
+            
+            # 生成文件名
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # 清理标题，移除特殊字符
+            clean_title = re.sub(r'[^\w\u4e00-\u9fff\s-]', '', title)
+            clean_title = clean_title.strip()[:30]  # 限制长度
+            clean_title = re.sub(r'\s+', '_', clean_title)  # 替换空格为下划线
+            
+            filename = f"原始输出-{clean_title}-{timestamp}.md"
+            filepath = os.path.join(raw_docs_dir, filename)
+            
+            # 构建完整的原始文档内容
+            raw_document = f"""# AI原始输出文档
+
+**生成时间**: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}  
+**文章标题**: {title}  
+**模型**: {self.model_id}  
+**输出长度**: {len(raw_content)} 字符
+
+---
+
+{raw_content}
+"""
+            
+            # 保存原始输出
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(raw_document)
+            
+            print(f"原始AI输出已保存: {filepath}")
+            
+        except Exception as e:
+            print(f"保存原始输出失败: {e}")
+    
     def _clean_ai_intro(self, content: str) -> str:
-        """清理AI生成内容前面的引导语和思考过程"""
+        """清理AI生成内容前面的引导语，只保留文章标题开始的内容"""
         if not content:
             return content
         
         lines = content.split('\n')
-        cleaned_lines = []
         
-        # AI思考过程模式
-        intro_patterns = [
-            '好的，作为',
-            '作为一名资深的医学综述撰写专家',
-            '作为',
-            '根据您提供的',
-            '基于您提供的',
-            '我已对您提供的',
-            '我将为您',
-            '我将根据',
-            '以下是',
-            '现在我为您',
-            '基于以上',
-            '根据以上',
-            # 英文AI思考过程模式
-            "I'm now populating",
-            "I'm beginning with",
-            "I'm now planning",
-            "I'm now fleshing out",
-            "I'm working to create",
-            "I'm paying close attention",
-            "I'm breaking down",
-            "I'm focusing on",
-            "I'm now ready to",
-            "**Refining Section",
-            "**Detailing Section",
-            "**Organizing the",
-            "**Developing Section",
-            "**Implementing the",
-            "I'm using data from",
-            "I'll make sure to",
-            "I'll explore how",
-            "I plan to integrate",
-            "I'm now defining"
-        ]
-        
-        # 第一遍：移除明显的AI思考内容
-        for line in lines:
+        # 查找第一个以#开头的标题行
+        title_start_index = -1
+        for i, line in enumerate(lines):
             line_stripped = line.strip()
-            
-            # 跳过包含AI思考模式的行
-            if any(pattern in line for pattern in intro_patterns):
-                continue
-            
-            # 保留其他内容
-            cleaned_lines.append(line)
+            if line_stripped.startswith('#'):
+                title_start_index = i
+                break
         
-        # 第二遍：查找真正的内容开始点
-        final_lines = []
-        content_started = False
+        # 如果找到标题，从标题开始保留所有内容
+        if title_start_index >= 0:
+            cleaned_content = '\n'.join(lines[title_start_index:]).strip()
+            if cleaned_content and len(cleaned_content) > 50:
+                return cleaned_content
         
-        for line in cleaned_lines:
-            line_stripped = line.strip()
-            
-            if not content_started:
-                # 检查是否是真正的内容开始
-                if (line_stripped.startswith('#') or 
-                    line_stripped.startswith('##') or
-                    ('　　' in line and len(line_stripped) > 10) or
-                    ('引言' in line_stripped) or
-                    ('摘要' in line_stripped) or
-                    ('结论' in line_stripped) or
-                    (line_stripped and '结核病' in line_stripped and len(line_stripped) > 20)):
-                    content_started = True
-                    final_lines.append(line)
-                elif not line_stripped:  # 保留空行
-                    final_lines.append(line)
-            else:
-                # 内容已经开始，保留所有内容
-                final_lines.append(line)
-        
-        # 重新组合内容并清理开头的空行
-        cleaned_content = '\n'.join(final_lines).strip()
-        
-        # 如果没有找到有效内容，返回原始内容
-        if not cleaned_content or len(cleaned_content) < 50:
-            print("警告: 清理后内容过短，返回原始内容")
-            return content
-        
-        return cleaned_content
+        # 如果没找到标题或内容过短，返回原始内容
+        print("警告: 未找到标题行或内容过短，返回原始内容")
+        return content
     
     def save_article(self, content: str, filename: str = None, user_input: str = None, 
                      export_docx: bool = False) -> tuple:
