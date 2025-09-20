@@ -837,7 +837,7 @@ class MedicalReviewGenerator:
                     # 如果引用的文献不在映射中，跳过（不包含在新引用中）
                     # 这样可以自动过滤掉超出文献列表范围的无效引用
             
-            # 重新组合多个引用
+            # 重新组合多个引用，按数字大小排序
             if not new_numbers:
                 # 如果所有引用都无效，保留原始引用而不是删除
                 print(f"警告: 引用 [{citation_content}] 无效，保留原样")
@@ -845,7 +845,9 @@ class MedicalReviewGenerator:
             elif len(new_numbers) == 1:
                 return f"[{new_numbers[0]}]"
             else:
-                return f"[{', '.join(new_numbers)}]"
+                # 按数字大小排序，确保小序号在前
+                sorted_numbers = sorted(new_numbers, key=int)
+                return f"[{', '.join(sorted_numbers)}]"
         
         # 保存替换前的内容片段用于调试
         test_section = article_content[2000:3000] if len(article_content) > 3000 else article_content[:1000]
